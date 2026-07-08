@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut } from "lucide-react";
+import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, streamEvents, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
@@ -141,6 +141,8 @@ function ChatSidebar({
   onDelete,
   username,
   onLogout,
+  collapsed,
+  onToggleCollapse,
 }: {
   chats: Chat[];
   currentChatId: string | null;
@@ -150,117 +152,174 @@ function ChatSidebar({
   onDelete: (id: string) => void;
   username: string;
   onLogout: () => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const groups = groupChats(chats);
 
   return (
-    <div className="w-72 border-r bg-card flex flex-col h-full">
-      <div className="p-3">
+    <div
+      className={cn(
+        "border-r bg-card flex flex-col h-full transition-all duration-200",
+        collapsed ? "w-16 items-center" : "w-72"
+      )}
+    >
+      <div className={cn("w-full flex items-center border-b p-2", collapsed ? "justify-center" : "justify-between")}>
+        {!collapsed && (
+          <div className="flex items-center gap-2 overflow-hidden">
+            <img
+              src="/static/hermes-logo.png"
+              alt="Hermes"
+              className="size-8 rounded-md object-contain shrink-0"
+            />
+            <span className="font-semibold text-sm truncate">Hermes Chat</span>
+          </div>
+        )}
+        {collapsed && (
+          <img
+            src="/static/hermes-logo.png"
+            alt="Hermes"
+            className="size-8 rounded-md object-contain"
+          />
+        )}
+        {!collapsed ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0"
+            onClick={onToggleCollapse}
+            title="Collapse sidebar"
+          >
+            <PanelLeftClose className="size-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0"
+            onClick={onToggleCollapse}
+            title="Expand sidebar"
+          >
+            <PanelLeftOpen className="size-4" />
+          </Button>
+        )}
+      </div>
+
+      <div className="p-2 w-full">
         <Button
           variant="outline"
-          className="w-full justify-start gap-2 h-10"
+          className={cn("h-10", collapsed ? "w-10 px-0 justify-center" : "w-full justify-start gap-2")}
           onClick={onNew}
+          title="New Chat"
         >
           <Plus className="size-4" />
-          New Chat
+          {!collapsed && "New Chat"}
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-4">
-        {groups.length === 0 && (
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-4 w-full">
+        {groups.length === 0 && !collapsed && (
           <p className="text-sm text-muted-foreground px-2">No chats yet.</p>
         )}
         {groups.map(({ label, items }) => (
-          <div key={label} className="space-y-1">
-            <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-              {label}
-            </h3>
+          <div key={label} className={cn("space-y-1", collapsed && "space-y-2")}>
+            {!collapsed && (
+              <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                {label}
+              </h3>
+            )}
             {items.map((chat) => (
               <div
                 key={chat.chat_id}
                 className={cn(
-                  "group relative flex items-center gap-3 rounded-lg px-2 py-2 text-sm cursor-pointer transition-colors",
+                  "group relative flex items-center rounded-lg text-sm cursor-pointer transition-colors",
+                  collapsed ? "justify-center size-10 p-0 mx-auto" : "gap-3 px-2 py-2",
                   currentChatId === chat.chat_id
                     ? "bg-accent text-accent-foreground"
                     : "hover:bg-muted"
                 )}
                 onClick={() => onSelect(chat.chat_id)}
+                title={chat.title}
               >
-                <MessageSquare className="size-4 shrink-0 mt-0.5 text-muted-foreground" />
-                {editingId === chat.chat_id ? (
-                  <div className="flex flex-1 items-center gap-1">
-                    <Input
-                      value={editTitle}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                      className="h-7 flex-1"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          onRename(chat.chat_id, editTitle);
-                          setEditingId(null);
-                        }
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      autoFocus
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRename(chat.chat_id, editTitle);
-                        setEditingId(null);
-                      }}
-                    >
-                      <Check className="size-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingId(null);
-                      }}
-                    >
-                      <X className="size-3" />
-                    </Button>
-                  </div>
-                ) : (
+                <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
+                {!collapsed && (
                   <>
-                    <span className="flex-1 truncate">{chat.title}</span>
-                    <div
-                      className={cn(
-                        "flex items-center gap-0.5",
-                        currentChatId === chat.chat_id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                      )}
-                    >
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingId(chat.chat_id);
-                          setEditTitle(chat.title);
-                        }}
-                      >
-                        <Pencil className="size-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 text-destructive hover:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(chat.chat_id);
-                        }}
-                      >
-                        <Trash2 className="size-3" />
-                      </Button>
-                    </div>
+                    {editingId === chat.chat_id ? (
+                      <div className="flex flex-1 items-center gap-1">
+                        <Input
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          className="h-7 flex-1"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              onRename(chat.chat_id, editTitle);
+                              setEditingId(null);
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRename(chat.chat_id, editTitle);
+                            setEditingId(null);
+                          }}
+                        >
+                          <Check className="size-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingId(null);
+                          }}
+                        >
+                          <X className="size-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="flex-1 truncate">{chat.title}</span>
+                        <div
+                          className={cn(
+                            "flex items-center gap-0.5",
+                            currentChatId === chat.chat_id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                          )}
+                        >
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingId(chat.chat_id);
+                              setEditTitle(chat.title);
+                            }}
+                          >
+                            <Pencil className="size-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 text-destructive hover:text-destructive"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDelete(chat.chat_id);
+                            }}
+                          >
+                            <Trash2 className="size-3" />
+                          </Button>
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
               </div>
@@ -269,17 +328,24 @@ function ChatSidebar({
         ))}
       </div>
 
-      <div className="p-3 border-t">
-        <div className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 hover:bg-muted cursor-pointer" onClick={onLogout}>
+      <div className={cn("border-t w-full", collapsed ? "p-2 flex justify-center" : "p-3")}>
+        <div
+          className={cn(
+            "flex items-center rounded-lg hover:bg-muted cursor-pointer",
+            collapsed ? "justify-center size-10 p-0" : "justify-between gap-2 px-2 py-2"
+          )}
+          onClick={onLogout}
+          title="Logout"
+        >
           <div className="flex items-center gap-2 min-w-0">
             <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
               <span className="text-sm font-medium text-primary">
                 {username.slice(0, 1).toUpperCase()}
               </span>
             </div>
-            <span className="text-sm font-medium truncate">{username}</span>
+            {!collapsed && <span className="text-sm font-medium truncate">{username}</span>}
           </div>
-          <LogOut className="size-4 shrink-0 text-muted-foreground" />
+          {!collapsed && <LogOut className="size-4 shrink-0 text-muted-foreground" />}
         </div>
       </div>
     </div>
@@ -292,6 +358,7 @@ function ChatSidebar({
 
 function ChatApp() {
   const { user, logout } = useAuth();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -549,6 +616,8 @@ function ChatApp() {
         onDelete={deleteChat}
         username={user?.username || ""}
         onLogout={logout}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
       />
       <div className="flex flex-1 flex-col h-full relative">
         {error && (
