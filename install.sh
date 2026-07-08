@@ -164,6 +164,10 @@ info "Start it with:"
 printf '    \033[1mhermes-bridge --host 0.0.0.0 --port 8000\033[0m\n'
 info "Verify:"
 printf '    \033[1mcurl http://localhost:8000/healthz\033[0m\n'
+info "Open WebUI plugin JSON exports are in:"
+printf '    \033[1m%s/openwebui/pipe_plugin.json\033[0m\n' "$INSTALL_DIR"
+printf '    \033[1m%s/openwebui/action_plugin.json\033[0m\n' "$INSTALL_DIR"
+printf '    \033[0mImport these via Workspace → Functions → Import.\033[0m\n'
 if [[ -z "$HERMES_FOUND" ]]; then
     warn "Hermes was not auto-detected. Install it and set HERMES_BIN if needed."
 fi
