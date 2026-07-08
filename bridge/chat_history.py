@@ -34,10 +34,23 @@ class ChatHistoryStore:
             """
             CREATE TABLE IF NOT EXISTS chats (
                 chat_id TEXT PRIMARY KEY,
+                user_id TEXT,
                 title TEXT NOT NULL,
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             );
+            """
+        )
+        # Migration: add user_id column to older databases that predate multi-user support.
+        try:
+            conn.execute("ALTER TABLE chats ADD COLUMN user_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id)")
+            conn.commit()
+        except sqlite3.OperationalError:
+            # Column already exists.
+            pass
+        conn.executescript(
+            """
 
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,78 +63,109 @@ class ChatHistoryStore:
 
             CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
             CREATE INDEX IF NOT EXISTS idx_chats_updated_at ON chats(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id);
             """
         )
         conn.commit()
 
-    def create_chat(self, chat_id: str, title: str = "New chat") -> None:
+    def _user_where(self, user_id: Optional[str]) -> str:
+        """Return a WHERE clause that matches chats owned by the user or unowned (legacy)."""
+        return "user_id = ? OR user_id IS NULL" if user_id else "user_id IS NULL"
+
+    def _user_params(self, user_id: Optional[str], extra: tuple = ()) -> tuple:
+        return (user_id, *extra) if user_id else extra
+
+    def create_chat(self, chat_id: str, user_id: Optional[str], title: str = "New chat") -> None:
         now = time.time()
         conn = self._conn()
         conn.execute(
-            "INSERT OR REPLACE INTO chats (chat_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            (chat_id, title, now, now),
+            "INSERT OR REPLACE INTO chats (chat_id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (chat_id, user_id, title, now, now),
         )
         conn.commit()
 
-    def rename_chat(self, chat_id: str, title: str) -> None:
+    def rename_chat(self, chat_id: str, user_id: Optional[str], title: str) -> None:
         conn = self._conn()
         conn.execute(
-            "UPDATE chats SET title = ?, updated_at = ? WHERE chat_id = ?",
-            (title, time.time(), chat_id),
+            f"UPDATE chats SET title = ?, updated_at = ? WHERE chat_id = ? AND ({self._user_where(user_id)})",
+            (title, time.time(), chat_id, *self._user_params(user_id)),
         )
         conn.commit()
 
-    def delete_chat(self, chat_id: str) -> None:
+    def delete_chat(self, chat_id: str, user_id: Optional[str]) -> None:
         conn = self._conn()
-        conn.execute("DELETE FROM chats WHERE chat_id = ?", (chat_id,))
+        conn.execute(
+            f"DELETE FROM chats WHERE chat_id = ? AND ({self._user_where(user_id)})",
+            (chat_id, *self._user_params(user_id)),
+        )
         conn.commit()
 
-    def list_chats(self, limit: int = 100) -> list[dict]:
+    def list_chats(self, user_id: Optional[str], limit: int = 100) -> list[dict]:
         conn = self._conn()
         rows = conn.execute(
-            "SELECT chat_id, title, created_at, updated_at FROM chats ORDER BY updated_at DESC LIMIT ?",
-            (limit,),
+            f"SELECT chat_id, user_id, title, created_at, updated_at FROM chats WHERE ({self._user_where(user_id)}) ORDER BY updated_at DESC LIMIT ?",
+            (*self._user_params(user_id), limit),
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def get_chat(self, chat_id: str) -> Optional[dict]:
+    def get_chat(self, chat_id: str, user_id: Optional[str]) -> Optional[dict]:
         conn = self._conn()
         row = conn.execute(
-            "SELECT chat_id, title, created_at, updated_at FROM chats WHERE chat_id = ?",
-            (chat_id,),
+            f"SELECT chat_id, user_id, title, created_at, updated_at FROM chats WHERE chat_id = ? AND ({self._user_where(user_id)})",
+            (chat_id, *self._user_params(user_id)),
         ).fetchone()
         return dict(row) if row else None
 
-    def add_message(self, chat_id: str, role: str, content: str) -> int:
+    def add_message(self, chat_id: str, user_id: Optional[str], role: str, content: str) -> int:
         conn = self._conn()
+        # Ensure the chat belongs to the user (or is unowned) before adding a message.
+        chat = self.get_chat(chat_id, user_id)
+        if chat is None:
+            raise PermissionError("chat not found or access denied")
         cur = conn.execute(
             "INSERT INTO messages (chat_id, role, content, created_at) VALUES (?, ?, ?, ?)",
             (chat_id, role, content, time.time()),
         )
         conn.execute(
-            "UPDATE chats SET updated_at = ? WHERE chat_id = ?",
-            (time.time(), chat_id),
+            f"UPDATE chats SET updated_at = ? WHERE chat_id = ? AND ({self._user_where(user_id)})",
+            (time.time(), chat_id, *self._user_params(user_id)),
         )
         conn.commit()
         return cur.lastrowid
 
-    def update_message(self, message_id: int, content: str) -> None:
+    def update_message(self, message_id: int, user_id: Optional[str], content: str) -> None:
         conn = self._conn()
         conn.execute(
-            "UPDATE messages SET content = ? WHERE id = ?",
-            (content, message_id),
+            f"""
+            UPDATE messages SET content = ?
+            WHERE id = ? AND chat_id IN (
+                SELECT chat_id FROM chats WHERE {self._user_where(user_id)}
+            )
+            """,
+            (content, message_id, *self._user_params(user_id)),
         )
         conn.commit()
 
-    def get_messages(self, chat_id: str) -> list[dict]:
+    def get_messages(self, chat_id: str, user_id: Optional[str]) -> list[dict]:
         conn = self._conn()
+        # Ensure the chat belongs to the user (or is unowned) before returning messages.
+        chat = self.get_chat(chat_id, user_id)
+        if chat is None:
+            return []
         rows = conn.execute(
             "SELECT id, role, content, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
             (chat_id,),
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def delete_messages(self, chat_id: str) -> None:
+    def delete_messages(self, chat_id: str, user_id: Optional[str]) -> None:
         conn = self._conn()
-        conn.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
+        conn.execute(
+            f"""
+            DELETE FROM messages WHERE chat_id = ? AND chat_id IN (
+                SELECT chat_id FROM chats WHERE {self._user_where(user_id)}
+            )
+            """,
+            (chat_id, *self._user_params(user_id)),
+        )
         conn.commit()

@@ -19,15 +19,16 @@ import uuid
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .chat_history import ChatHistoryStore
-from .config import _plugin_dir, load_config
+from .config import _plugin_dir, auth_secret, load_config
 from .database import ChatSessionStore
 from .pty_manager import SessionManager
+from .users import UserStore
 
 config = load_config()
 _log_level = getattr(logging, config.log_level.upper(), logging.INFO)
@@ -41,6 +42,7 @@ app = FastAPI(title="hermes-bridge", version="0.1.0")
 store = ChatSessionStore()
 history = ChatHistoryStore()
 sessions = SessionManager(config)
+users = UserStore(secret=auth_secret())
 
 
 # --------------------------------------------------------------------------- #
@@ -99,6 +101,49 @@ class GateChoiceRequest(BaseModel):
     choice: str
 
 
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    user_id: str
+    username: str
+    token: str
+
+
+def _extract_bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    parts = authorization.split()
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1]
+    return None
+
+
+def get_current_user(authorization: str | None = Header(default=None)) -> dict:
+    token = _extract_bearer_token(authorization)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing authorization header")
+    user = users.decode_token(token)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    return user
+
+
+def _verify_chat_access(chat_id: str, current_user: dict) -> dict:
+    """Return the chat if the user owns it (or it is unowned), otherwise raise 404."""
+    chat = history.get_chat(chat_id, current_user["user_id"])
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return chat
+
+
 def _resolve_gate_choice(options: list[str], choice: str) -> str | None:
     """Return the matched option label, or None if the choice is unrecognised.
 
@@ -126,10 +171,35 @@ async def healthz() -> dict:
     return {"status": "ok"}
 
 
+@app.post("/api/auth/register")
+async def register(request: RegisterRequest) -> AuthResponse:
+    try:
+        user = users.create_user(request.username, request.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    token = users.create_token(user["user_id"])
+    return AuthResponse(user_id=user["user_id"], username=user["username"], token=token)
+
+
+@app.post("/api/auth/login")
+async def login(request: LoginRequest) -> AuthResponse:
+    user = users.verify_user(request.username, request.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token = users.create_token(user["user_id"])
+    return AuthResponse(user_id=user["user_id"], username=user["username"], token=token)
+
+
+@app.get("/api/auth/me")
+async def me(current_user: dict = Depends(get_current_user)) -> dict:
+    return {"user_id": current_user["user_id"], "username": current_user["username"]}
+
+
 @app.post("/v1/chat")
-async def chat(request: ChatRequest) -> StreamingResponse:
+async def chat(request: ChatRequest, current_user: dict = Depends(get_current_user)) -> StreamingResponse:
     if not request.chat_id.strip():
         raise HTTPException(status_code=400, detail="chat_id is required")
+    _verify_chat_access(request.chat_id, current_user)
     loop = asyncio.get_event_loop()
     hermes_session_id, _created = store.get_or_create_hermes_session_id(request.chat_id)
     session = sessions.get_or_start(request.chat_id, hermes_session_id, loop)
@@ -176,13 +246,14 @@ async def _sse_stream(session) -> AsyncGenerator[bytes, None]:
 
 
 @app.post("/v1/gate/resolve")
-async def resolve_gate(request: GateResolveRequest) -> dict:
+async def resolve_gate(request: GateResolveRequest, current_user: dict = Depends(get_current_user)) -> dict:
     if not request.chat_id.strip():
         raise HTTPException(status_code=400, detail="chat_id is required")
     if not request.gate_id.strip():
         raise HTTPException(status_code=400, detail="gate_id is required")
     if not request.choice.strip():
         raise HTTPException(status_code=400, detail="choice is required")
+    _verify_chat_access(request.chat_id, current_user)
     loop = asyncio.get_event_loop()
     session = sessions.get(request.chat_id)
     if session is None:
@@ -199,7 +270,7 @@ async def resolve_gate(request: GateResolveRequest) -> dict:
 
 
 @app.post("/v1/chat/drain")
-async def drain(request: ChatRequest) -> StreamingResponse:
+async def drain(request: ChatRequest, current_user: dict = Depends(get_current_user)) -> StreamingResponse:
     """Resume streaming any output queued after a gate was resolved.
 
     The Pipe script should call this (with the same chat_id, message
@@ -208,6 +279,7 @@ async def drain(request: ChatRequest) -> StreamingResponse:
     """
     if not request.chat_id.strip():
         raise HTTPException(status_code=400, detail="chat_id is required")
+    _verify_chat_access(request.chat_id, current_user)
     session = sessions.get(request.chat_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"No active session for chat {request.chat_id}")
@@ -220,59 +292,59 @@ async def drain(request: ChatRequest) -> StreamingResponse:
 
 
 @app.get("/api/chats")
-async def list_chats() -> list[dict]:
-    return history.list_chats()
+async def list_chats(current_user: dict = Depends(get_current_user)) -> list[dict]:
+    return history.list_chats(current_user["user_id"])
 
 
 @app.post("/api/chats")
-async def create_chat(request: CreateChatRequest) -> dict:
+async def create_chat(request: CreateChatRequest, current_user: dict = Depends(get_current_user)) -> dict:
     chat_id = str(uuid.uuid4())
-    history.create_chat(chat_id, request.title)
+    history.create_chat(chat_id, current_user["user_id"], request.title)
     return {"chat_id": chat_id, "title": request.title}
 
 
 @app.get("/api/chats/{chat_id}")
-async def get_chat(chat_id: str) -> dict:
-    chat = history.get_chat(chat_id)
+async def get_chat(chat_id: str, current_user: dict = Depends(get_current_user)) -> dict:
+    chat = history.get_chat(chat_id, current_user["user_id"])
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
     return chat
 
 
 @app.patch("/api/chats/{chat_id}")
-async def rename_chat(chat_id: str, request: RenameChatRequest) -> dict:
-    if history.get_chat(chat_id) is None:
+async def rename_chat(chat_id: str, request: RenameChatRequest, current_user: dict = Depends(get_current_user)) -> dict:
+    if history.get_chat(chat_id, current_user["user_id"]) is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    history.rename_chat(chat_id, request.title)
+    history.rename_chat(chat_id, current_user["user_id"], request.title)
     return {"chat_id": chat_id, "title": request.title}
 
 
 @app.delete("/api/chats/{chat_id}")
-async def delete_chat(chat_id: str) -> dict:
-    if history.get_chat(chat_id) is None:
+async def delete_chat(chat_id: str, current_user: dict = Depends(get_current_user)) -> dict:
+    if history.get_chat(chat_id, current_user["user_id"]) is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    history.delete_chat(chat_id)
+    history.delete_chat(chat_id, current_user["user_id"])
     return {"deleted": chat_id}
 
 
 @app.get("/api/chats/{chat_id}/messages")
-async def get_messages(chat_id: str) -> list[dict]:
-    if history.get_chat(chat_id) is None:
+async def get_messages(chat_id: str, current_user: dict = Depends(get_current_user)) -> list[dict]:
+    if history.get_chat(chat_id, current_user["user_id"]) is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    return history.get_messages(chat_id)
+    return history.get_messages(chat_id, current_user["user_id"])
 
 
 @app.post("/api/chats/{chat_id}/messages")
-async def save_message(chat_id: str, request: SaveMessageRequest) -> dict:
-    if history.get_chat(chat_id) is None:
+async def save_message(chat_id: str, request: SaveMessageRequest, current_user: dict = Depends(get_current_user)) -> dict:
+    if history.get_chat(chat_id, current_user["user_id"]) is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    message_id = history.add_message(chat_id, request.role, request.content)
+    message_id = history.add_message(chat_id, current_user["user_id"], request.role, request.content)
     return {"id": message_id, "role": request.role, "content": request.content}
 
 
 @app.put("/api/chats/{chat_id}/messages/{message_id}")
-async def update_message(chat_id: str, message_id: int, request: UpdateMessageRequest) -> dict:
-    if history.get_chat(chat_id) is None:
+async def update_message(chat_id: str, message_id: int, request: UpdateMessageRequest, current_user: dict = Depends(get_current_user)) -> dict:
+    if history.get_chat(chat_id, current_user["user_id"]) is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    history.update_message(message_id, request.content)
+    history.update_message(message_id, current_user["user_id"], request.content)
     return {"id": message_id, "content": request.content}

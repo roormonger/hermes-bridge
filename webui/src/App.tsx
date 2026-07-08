@@ -14,8 +14,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Pencil, MessageSquare, Check, X } from "lucide-react";
+import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch, streamEvents, type SseEvent } from "./api";
+import { useAuth, AuthProvider, AuthGuard } from "./auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,69 +42,6 @@ type ChatMessage = {
   content: string;
   status?: "running" | "complete";
   gate?: Gate | null;
-};
-
-type SseEvent =
-  | { type: "text"; text: string }
-  | { type: "gate_interrupt"; gate_id: string; options?: string[]; prompt?: string }
-  | { type: "process_exit" };
-
-// ---------------------------------------------------------------------------
-// API helpers
-// ---------------------------------------------------------------------------
-
-const API_BASE = "";
-
-const apiFetch = async (path: string, options: RequestInit = {}) => {
-  const res = await fetch(API_BASE + path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || res.statusText);
-  }
-  return res.json();
-};
-
-const streamEvents = async (
-  url: string,
-  body: object,
-  onEvent: (event: SseEvent) => void
-) => {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(res.statusText);
-  const reader = res.body?.getReader();
-  if (!reader) throw new Error("no response body");
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("data: ")) {
-        const data = trimmed.slice(6);
-        if (data === "[DONE]") continue;
-        try {
-          const event = JSON.parse(data) as SseEvent;
-          onEvent(event);
-        } catch (e) {
-          console.error("failed to parse SSE event", data, e);
-        }
-      }
-    }
-  }
 };
 
 const generateId = () => crypto.randomUUID();
@@ -173,6 +112,8 @@ function ChatSidebar({
   onNew,
   onRename,
   onDelete,
+  username,
+  onLogout,
 }: {
   chats: Chat[];
   currentChatId: string | null;
@@ -180,6 +121,8 @@ function ChatSidebar({
   onNew: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  username: string;
+  onLogout: () => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -188,9 +131,17 @@ function ChatSidebar({
     <div className="w-64 border-r bg-card flex flex-col h-full">
       <div className="p-4 border-b flex items-center justify-between">
         <h2 className="font-semibold text-card-foreground">Chats</h2>
-        <Button variant="ghost" size="icon" onClick={onNew}>
-          <Plus className="size-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={onNew}>
+            <Plus className="size-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onLogout} title="Logout">
+            <LogOut className="size-4" />
+          </Button>
+        </div>
+      </div>
+      <div className="px-3 py-2 text-xs text-muted-foreground border-b">
+        Logged in as <span className="font-medium text-foreground">{username}</span>
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {chats.map((chat) => (
@@ -283,7 +234,8 @@ function ChatSidebar({
 // Main app
 // ---------------------------------------------------------------------------
 
-export default function App() {
+function ChatApp() {
+  const { user, logout } = useAuth();
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -539,6 +491,8 @@ export default function App() {
         onNew={createChat}
         onRename={renameChat}
         onDelete={deleteChat}
+        username={user?.username || ""}
+        onLogout={logout}
       />
       <div className="flex flex-1 flex-col h-full relative">
         {error && (
@@ -552,5 +506,15 @@ export default function App() {
         <GateDialog pendingGate={pendingGate} onChoice={handleGateChoice} />
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AuthGuard>
+        <ChatApp />
+      </AuthGuard>
+    </AuthProvider>
   );
 }

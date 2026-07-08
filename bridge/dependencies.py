@@ -23,6 +23,8 @@ REQUIRED_PACKAGES = [
     ("uvicorn", "uvicorn[standard]>=0.29"),
     ("pydantic", "pydantic>=2.6"),
     ("yaml", "pyyaml>=6.0"),
+    ("jwt", "pyjwt>=2.8"),
+    ("bcrypt", "bcrypt>=4.1"),
 ]
 
 

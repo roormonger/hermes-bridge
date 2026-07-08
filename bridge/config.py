@@ -9,6 +9,7 @@ repo root config.yaml.
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,6 +119,16 @@ def update_config(updates: dict[str, Any], path: Path | None = None) -> BridgeCo
     new_cfg = BridgeConfig(**data)
     save_config(new_cfg, path)
     return new_cfg
+
+
+def auth_secret() -> str:
+    """Return a stable secret for JWT signing. Generates and persists one if needed."""
+    secret_path = data_dir() / ".auth_secret"
+    if secret_path.exists():
+        return secret_path.read_text(encoding="utf-8").strip()
+    secret = secrets.token_urlsafe(32)
+    secret_path.write_text(secret, encoding="utf-8")
+    return secret
 
 
 def effective_hermes_bin(config: BridgeConfig) -> str:
