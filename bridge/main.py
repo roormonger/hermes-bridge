@@ -54,12 +54,17 @@ if _webui_dir.exists():
 
 @app.get("/chat")
 async def chat_ui() -> FileResponse:
-    return FileResponse(str(_webui_dir / "index.html"))
+    index_path = _webui_dir / "index.html"
+    if not index_path.exists():
+        logger.error("hermes-bridge web UI not found at %s", index_path)
+        raise HTTPException(status_code=404, detail=f"web UI not found at {index_path}")
+    return FileResponse(str(index_path))
 
 
 @app.on_event("startup")
 async def _on_startup() -> None:
     logger.info("hermes-bridge listening on %s:%s", config.host, config.port)
+    logger.info("hermes-bridge web UI directory: %s", _webui_dir)
 
 
 class ChatRequest(BaseModel):
