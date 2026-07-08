@@ -372,19 +372,16 @@ class HermesPtySession:
         if self.master_fd is None:
             raise RuntimeError("Session is not running")
 
+        choice = choice.strip()
+
         if gate.kind == "confirm":
-            key = "y" if choice.strip().lower() in ("yes", "y", "true", "approve") else "n"
+            key = "y" if choice.lower() in ("yes", "y", "true", "approve") else "n"
             os.write(self.master_fd, (key + "\n").encode("utf-8"))
             return
 
         # select-style: move the cursor to the matching option, then Enter.
-        try:
-            target_index = next(
-                i for i, opt in enumerate(gate.options)
-                if opt.strip().lower() == choice.strip().lower()
-            )
-        except StopIteration:
-            target_index = 0
+        # Accept the option label, a 1-based number, or a numbered prefix like "2)".
+        target_index = self._resolve_select_index(gate.options, choice)
 
         # questionary select prompts start with the cursor on option 0.
         down_arrow = b"\x1b[B"
@@ -392,6 +389,28 @@ class HermesPtySession:
             os.write(self.master_fd, down_arrow)
             time.sleep(0.02)
         os.write(self.master_fd, b"\r")
+
+    @staticmethod
+    def _resolve_select_index(options: list[str], choice: str) -> int:
+        """Return the 0-based index matching the user's choice.
+
+        Accepts the exact option label, a 1-based number, or a numbered
+        prefix like "1)" / "2.".
+        """
+        lowered = choice.lower()
+        for i, opt in enumerate(options):
+            if opt.strip().lower() == lowered:
+                return i
+            numbered_prefix = f"{i + 1}"
+            if lowered == numbered_prefix or lowered.startswith(numbered_prefix + ")") or lowered.startswith(numbered_prefix + "."):
+                return i
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(options):
+                return idx
+        except ValueError:
+            pass
+        return 0
 
 
 # --------------------------------------------------------------------------- #

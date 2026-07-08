@@ -54,6 +54,28 @@ class GateResolveRequest(BaseModel):
     choice: str
 
 
+def _resolve_gate_choice(options: list[str], choice: str) -> str | None:
+    """Return the matched option label, or None if the choice is unrecognised.
+
+    Accepts the exact option label or a 1-based number/index.
+    """
+    choice = choice.strip()
+    lowered = choice.lower()
+    for i, opt in enumerate(options):
+        if opt.strip().lower() == lowered:
+            return opt
+        numbered = f"{i + 1}"
+        if lowered == numbered or lowered.startswith(numbered + ")") or lowered.startswith(numbered + "."):
+            return opt
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(options):
+            return options[idx]
+    except ValueError:
+        pass
+    return None
+
+
 @app.get("/healthz")
 async def healthz() -> dict:
     return {"status": "ok"}
@@ -69,10 +91,7 @@ async def chat(request: ChatRequest) -> StreamingResponse:
 
     pending_gate = session.get_pending_gate()
     if pending_gate is not None:
-        matched = next(
-            (opt for opt in pending_gate.options if opt.strip().lower() == request.message.strip().lower()),
-            None,
-        )
+        matched = _resolve_gate_choice(pending_gate.options, request.message.strip())
         if matched is None:
             raise HTTPException(
                 status_code=409,

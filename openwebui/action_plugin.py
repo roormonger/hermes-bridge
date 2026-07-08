@@ -1,7 +1,7 @@
 """
 title: Hermes Gate Resolver
 author: hermes-bridge
-version: 0.1.0
+version: 0.1.1
 description: Resolves a pending Hermes TUI decision gate by posting to the
     hermes-bridge /v1/gate/resolve endpoint, then drains and appends the
     resumed token stream back into the chat.
