@@ -145,6 +145,8 @@ def _do_register(ctx) -> None:
     )
 
     ctx.register_tool(
+        name="hermes_bridge_configure",
+        toolset="hermes_bridge",
         schema=_schema(
             "hermes_bridge_configure",
             "Change hermes-bridge runtime configuration. Only bridge-side settings can be changed; Open WebUI settings must be edited in Open WebUI.",
@@ -163,6 +165,8 @@ def _do_register(ctx) -> None:
     )
 
     ctx.register_tool(
+        name="hermes_bridge_status",
+        toolset="hermes_bridge",
         schema=_schema(
             "hermes_bridge_status",
             "Check whether the hermes-bridge daemon is running and healthy.",
@@ -172,6 +176,8 @@ def _do_register(ctx) -> None:
     )
 
     ctx.register_tool(
+        name="hermes_bridge_restart",
+        toolset="hermes_bridge",
         schema=_schema(
             "hermes_bridge_restart",
             "Restart the hermes-bridge daemon to pick up configuration changes.",
@@ -181,6 +187,8 @@ def _do_register(ctx) -> None:
     )
 
     ctx.register_tool(
+        name="hermes_bridge_install_dependencies",
+        toolset="hermes_bridge",
         schema=_schema(
             "hermes_bridge_install_dependencies",
             "Install the Python packages required by hermes-bridge into the Hermes environment if any are missing.",
