@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+node_modules/
+temp_aui/
 bridge/hermes_bridge.db
 *.db
 .env

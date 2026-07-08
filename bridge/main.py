@@ -47,7 +47,7 @@ sessions = SessionManager(config)
 # Static web UI
 # --------------------------------------------------------------------------- #
 
-_webui_dir = (_plugin_dir() or Path(__file__).resolve().parent.parent) / "webui"
+_webui_dir = (_plugin_dir() or Path(__file__).resolve().parent.parent) / "webui" / "dist"
 if _webui_dir.exists():
     app.mount("/static", StaticFiles(directory=str(_webui_dir)), name="static")
 
