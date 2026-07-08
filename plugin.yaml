@@ -10,3 +10,4 @@ provides_tools:
   - hermes_bridge_status
   - hermes_bridge_restart
   - hermes_bridge_install_dependencies
+  - hermes_bridge_users

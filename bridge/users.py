@@ -98,6 +98,20 @@ class UserStore:
         ).fetchone()
         return dict(row) if row else None
 
+    def list_users(self, limit: int = 100) -> list[dict]:
+        conn = self._conn()
+        rows = conn.execute(
+            "SELECT user_id, username, created_at FROM users ORDER BY username ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_user(self, user_id: str) -> bool:
+        conn = self._conn()
+        cur = conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
     def create_token(self, user_id: str) -> str:
         """Create a JWT access token for the user."""
         now = time.time()

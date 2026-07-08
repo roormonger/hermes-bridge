@@ -18,7 +18,7 @@ _PLUGIN_ROOT = Path(__file__).resolve().parent
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
-from bridge.config import load_config, update_config
+from bridge.config import auth_secret, load_config, update_config
 from bridge.daemon import is_running, logs, restart, start, status, stop
 from bridge.dependencies import check_dependencies, install_dependencies
 
@@ -57,6 +57,15 @@ def _setup_argparse(subparser):
         "--restart", action="store_true", help="Restart daemon after writing config"
     )
 
+    users_parser = subs.add_parser("users", help="Manage chat UI users")
+    users_subs = users_parser.add_subparsers(dest="hermes_bridge_users_command")
+    users_subs.add_parser("list", help="List chat UI users")
+    add_parser = users_subs.add_parser("add", help="Add a chat UI user")
+    add_parser.add_argument("--username", required=True, help="Username for the new user")
+    add_parser.add_argument("--password", required=True, help="Password for the new user")
+    del_parser = users_subs.add_parser("delete", help="Delete a chat UI user")
+    del_parser.add_argument("--user-id", required=True, help="User ID to delete")
+
 
 def _handle_cli(args) -> None:
     cmd = getattr(args, "hermes_bridge_command", None)
@@ -84,6 +93,8 @@ def _handle_cli(args) -> None:
             return
         failures = run_tests(verbose=getattr(args, "verbose", False))
         print(json.dumps({"failures": failures, "ok": failures == 0}, indent=2))
+    elif cmd == "users":
+        print(_handle_users_cli(args))
     elif cmd == "configure":
         updates: dict[str, Any] = {}
         if args.port is not None:
@@ -112,11 +123,11 @@ def _handle_cli(args) -> None:
 # Hermes tools
 # --------------------------------------------------------------------------- #
 
-def _schema(name: str, description: str, params: dict) -> dict:
+def _schema(name: str, description: str, params: dict, required: list[str] | None = None) -> dict:
     return {
         "name": name,
         "description": description,
-        "parameters": {"type": "object", "properties": params, "required": list(params.keys())},
+        "parameters": {"type": "object", "properties": params, "required": required if required is not None else list(params.keys())},
     }
 
 
@@ -197,6 +208,27 @@ def _do_register(ctx) -> None:
         handler=_tool_install_dependencies,
     )
 
+    ctx.register_tool(
+        name="hermes_bridge_users",
+        toolset="hermes_bridge",
+        schema=_schema(
+            "hermes_bridge_users",
+            "Manage users for the standalone Hermes chat UI. The Hermes admin is the chat admin. Use action=list to see users, action=add to create a user (requires username and password), action=delete to remove a user (requires user_id).",
+            {
+                "action": {
+                    "type": "string",
+                    "enum": ["list", "add", "delete"],
+                    "description": "Action to perform: list users, add a user, or delete a user",
+                },
+                "username": {"type": "string", "description": "Username for add action"},
+                "password": {"type": "string", "description": "Password for add action"},
+                "user_id": {"type": "string", "description": "User ID for delete action"},
+            },
+            required=["action"],
+        ),
+        handler=_tool_users,
+    )
+
     # Warn if dependencies are missing so the user knows to run install-deps.
     missing = check_dependencies()
     if missing:
@@ -245,6 +277,48 @@ def _tool_restart(_args: dict) -> str:
 
 def _tool_install_dependencies(_args: dict) -> str:
     return json.dumps(install_dependencies(auto=True), indent=2)
+
+
+def _user_store() -> Any:
+    """Return a UserStore instance (lazy import to avoid bcrypt on load)."""
+    from bridge.users import UserStore
+
+    return UserStore(secret=auth_secret())
+
+
+def _handle_users_cli(args) -> str:
+    """CLI handler for `hermes hermes-bridge users ...`."""
+    sub = getattr(args, "hermes_bridge_users_command", None)
+    store = _user_store()
+    if sub == "list":
+        users = store.list_users()
+        return json.dumps({"users": users}, indent=2)
+    if sub == "add":
+        user = store.create_user(args.username, args.password)
+        return json.dumps({"status": "created", "user": user}, indent=2)
+    if sub == "delete":
+        deleted = store.delete_user(args.user_id)
+        return json.dumps({"status": "deleted" if deleted else "not_found", "user_id": args.user_id}, indent=2)
+    return json.dumps({"error": "Usage: hermes hermes-bridge users {list|add|delete}"}, indent=2)
+
+
+def _tool_users(args: dict) -> str:
+    """Hermes tool handler for managing chat UI users."""
+    action = args.get("action")
+    store = _user_store()
+    try:
+        if action == "list":
+            users = store.list_users()
+            return json.dumps({"users": users}, indent=2)
+        if action == "add":
+            user = store.create_user(args["username"], args["password"])
+            return json.dumps({"status": "created", "user": user}, indent=2)
+        if action == "delete":
+            deleted = store.delete_user(args["user_id"])
+            return json.dumps({"status": "deleted" if deleted else "not_found", "user_id": args["user_id"]}, indent=2)
+        return json.dumps({"error": f"Unknown action: {action}"}, indent=2)
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)}, indent=2)
 
 
 def _start_with_deps() -> dict:
