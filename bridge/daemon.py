@@ -110,9 +110,7 @@ def _start_uvicorn(config: BridgeConfig) -> subprocess.Popen:
         "stderr": subprocess.STDOUT,
         "env": env,
     }
-    if os.name == "posix":
-        kwargs["start_new_session"] = True
-    elif os.name == "nt":
+    if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
 
     return subprocess.Popen(cmd, **kwargs)
@@ -202,19 +200,77 @@ def start() -> dict:
         _release_start_lock()
 
 
-def stop() -> dict:
-    """Stop the daemon."""
-    pid = _read_pid()
-    if pid is None:
-        return {"status": "not_running", "running": False, "pid": None, "healthy": False}
-
+def _kill_port_processes(port: int) -> None:
+    """Best-effort kill of any process still listening on the bridge port."""
     try:
-        if os.name == "posix":
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-        else:
-            os.kill(pid, signal.SIGTERM)
-    except (ProcessLookupError, OSError):
+        # Try lsof on Linux/macOS
+        result = subprocess.run(
+            ["lsof", "-t", f"-i:{port}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        for line in result.stdout.strip().splitlines():
+            try:
+                os.kill(int(line), signal.SIGKILL)
+            except (ProcessLookupError, OSError, ValueError):
+                pass
+    except FileNotFoundError:
         pass
+
+    # Fallback: try ss/netstat parsing if lsof isn't available
+    try:
+        result = subprocess.run(
+            ["ss", "-tlnp"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        for line in result.stdout.splitlines():
+            if f":{port}" in line and "users:" in line:
+                import re
+                match = re.search(r"pid=(\d+)", line)
+                if match:
+                    try:
+                        os.kill(int(match.group(1)), signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+    except FileNotFoundError:
+        pass
+
+
+def _wait_for_port_free(port: int, timeout: float = 10.0) -> bool:
+    """Wait until no process is listening on the given port."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                if s.connect_ex(("127.0.0.1", port)) != 0:
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.2)
+    return False
+
+
+def stop() -> dict:
+    """Stop the daemon and ensure the bridge port is released."""
+    pid = _read_pid()
+    if pid is not None:
+        try:
+            if os.name == "posix":
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+            else:
+                os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, OSError):
+            pass
+
+    # Also kill any leftover uvicorn process on the bridge port.
+    config = load_config()
+    _kill_port_processes(config.port)
+    _wait_for_port_free(config.port, timeout=5.0)
 
     PID_FILE.unlink(missing_ok=True)
     return {"status": "stopped", "running": False, "pid": None, "healthy": False}
@@ -223,11 +279,8 @@ def stop() -> dict:
 def restart() -> dict:
     """Restart the daemon."""
     stop()
-    # Wait for the old process to exit.
-    for _ in range(20):
-        if not is_running():
-            break
-        time.sleep(0.1)
+    config = load_config()
+    _wait_for_port_free(config.port, timeout=10.0)
     return start()
 
 
