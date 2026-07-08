@@ -174,10 +174,11 @@ def start() -> dict:
 
     try:
         cmd = [sys.executable, "-m", "bridge.daemon", "_run"]
+        log = open(LOG_FILE, "a", encoding="utf-8")
         kwargs: dict = {
             "stdin": subprocess.DEVNULL,
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
+            "stdout": log,
+            "stderr": subprocess.STDOUT,
         }
         if os.name == "posix":
             kwargs["start_new_session"] = True
