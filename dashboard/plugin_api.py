@@ -7,7 +7,14 @@ inside the Hermes dashboard server process and manipulate the bridge daemon via
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Optional
+
+# Make sure the plugin root is importable regardless of how Hermes loads this file.
+_PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+if str(_PLUGIN_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from fastapi import APIRouter
 from pydantic import BaseModel
