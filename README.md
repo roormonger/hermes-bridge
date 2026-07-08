@@ -91,6 +91,22 @@ Open WebUI  ──────────────────────�
 
 ## Quickstart
 
+### One-line installer (Linux/macOS/WSL)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/roormonger/hermes-bridge/main/install.sh | bash
+```
+
+The installer clones the repo into `~/.hermes-bridge`, creates a venv, installs dependencies, searches
+common Hermes locations, installs a `hermes-bridge` launcher in `~/.local/bin`, and optionally sets
+up a systemd user service on Linux. After it runs:
+
+```bash
+hermes-bridge --host 0.0.0.0 --port 8000
+```
+
+### Manual install
+
 ```bash
 git clone https://github.com/roormonger/hermes-bridge.git
 cd hermes-bridge
