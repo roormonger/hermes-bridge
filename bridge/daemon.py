@@ -175,10 +175,16 @@ def start() -> dict:
     try:
         cmd = [sys.executable, "-m", "bridge.daemon", "_run"]
         log = open(LOG_FILE, "a", encoding="utf-8")
+        env = os.environ.copy()
+        plugin_dir = _plugin_dir()
+        if plugin_dir is not None:
+            existing = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = str(plugin_dir) + (os.pathsep + existing if existing else "")
         kwargs: dict = {
             "stdin": subprocess.DEVNULL,
             "stdout": log,
             "stderr": subprocess.STDOUT,
+            "env": env,
         }
         if os.name == "posix":
             kwargs["start_new_session"] = True
