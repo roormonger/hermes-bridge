@@ -258,21 +258,39 @@ def _wait_for_port_free(port: int, timeout: float = 10.0) -> bool:
 def stop() -> dict:
     """Stop the daemon and ensure the bridge port is released."""
     pid = _read_pid()
+    config = load_config()
+
     if pid is not None:
         try:
             if os.name == "posix":
-                os.killpg(os.getpgid(pid), signal.SIGTERM)
+                # First ask the whole process group (daemon + uvicorn) to exit.
+                try:
+                    os.killpg(os.getpgid(pid), signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    pass
+                # If the daemon is still alive after a moment, SIGKILL it so the
+                # watchdog cannot restart uvicorn before we reclaim the port.
+                time.sleep(0.5)
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
             else:
                 os.kill(pid, signal.SIGTERM)
+                time.sleep(0.5)
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
         except (ProcessLookupError, OSError):
             pass
 
     # Also kill any leftover uvicorn process on the bridge port.
-    config = load_config()
     _kill_port_processes(config.port)
     _wait_for_port_free(config.port, timeout=5.0)
 
     PID_FILE.unlink(missing_ok=True)
+    LOCK_FILE.unlink(missing_ok=True)
     return {"status": "stopped", "running": False, "pid": None, "healthy": False}
 
 
