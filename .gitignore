@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+bridge/hermes_bridge.db
+*.db
+.env
