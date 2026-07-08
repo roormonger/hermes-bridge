@@ -22,7 +22,7 @@ if str(_PLUGIN_ROOT) not in sys.path:
 
 _ERROR_LOG = _PLUGIN_ROOT / "run" / "dashboard-api-error.log"
 
-from bridge.config import load_config, update_config
+from bridge.config import auth_secret, load_config, update_config
 from bridge.daemon import is_running, logs, restart, start, status, stop
 from bridge.dependencies import check_dependencies, install_dependencies
 
@@ -122,5 +122,48 @@ async def get_deps() -> dict:
 async def post_install_deps() -> dict:
     try:
         return install_dependencies(auto=True)
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+
+
+def _user_store() -> UserStore:
+    """Lazy-load UserStore so missing bcrypt doesn't break dashboard import."""
+    from bridge.users import UserStore
+
+    return UserStore(secret=auth_secret())
+
+
+@router.get("/users")
+async def get_users() -> dict:
+    try:
+        store = _user_store()
+        return {"users": store.list_users()}
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+@router.post("/users")
+async def post_user(body: CreateUserRequest) -> dict:
+    try:
+        store = _user_store()
+        user = store.create_user(body.username, body.password)
+        return {"status": "created", "user": user}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str) -> dict:
+    try:
+        store = _user_store()
+        deleted = store.delete_user(user_id)
+        return {"status": "deleted" if deleted else "not_found", "user_id": user_id}
     except Exception as exc:
         _handle_exc(exc)

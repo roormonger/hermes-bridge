@@ -1,9 +1,9 @@
 {
   "name": "hermes-bridge",
   "label": "Hermes Bridge",
-  "description": "Control the hermes-bridge daemon, view logs, and edit bridge config from the dashboard.",
+  "description": "Control the hermes-bridge daemon, view logs, edit config, and manage chat UI users from the dashboard.",
   "icon": "Waypoints",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "tab": {
     "path": "/hermes-bridge",
     "position": "end"

@@ -41,6 +41,9 @@
   function BridgeDashboard() {
     const [status, setStatus] = useState(null);
     const [logs, setLogs] = useState("");
+    const [users, setUsers] = useState([]);
+    const [newUsername, setNewUsername] = useState("");
+    const [newPassword, setNewPassword] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
@@ -63,12 +66,22 @@
       }
     }, []);
 
+    const loadUsers = useCallback(async () => {
+      try {
+        const data = await fetchJSON("/users");
+        setUsers(data.users || []);
+      } catch (err) {
+        setError("Users failed: " + String(err));
+      }
+    }, []);
+
     useEffect(() => {
       loadStatus();
       loadLogs();
+      loadUsers();
       const id = setInterval(() => { loadStatus(); loadLogs(); }, 5000);
       return () => clearInterval(id);
-    }, [loadStatus, loadLogs]);
+    }, [loadStatus, loadLogs, loadUsers]);
 
     async function act(promise, refresh) {
       setLoading(true);
@@ -88,6 +101,22 @@
     const onRestart = () => act(fetchJSON("/restart", { method: "POST" }), loadStatus);
     const onInstallDeps = () => act(fetchJSON("/install-deps", { method: "POST" }), loadStatus);
     const onRefreshLogs = () => act(loadLogs(), null);
+
+    const onCreateUser = async (e) => {
+      e.preventDefault();
+      await act(
+        fetchJSON("/users", {
+          method: "POST",
+          body: JSON.stringify({ username: newUsername, password: newPassword }),
+        }),
+        loadUsers
+      );
+      setNewUsername("");
+      setNewPassword("");
+    };
+
+    const onDeleteUser = (userId) =>
+      act(fetchJSON("/users/" + userId, { method: "DELETE" }), loadUsers);
 
     return h("div", { className: "space-y-4 p-4 max-w-5xl mx-auto" },
       h("div", { className: "flex items-center justify-between" },
@@ -141,6 +170,48 @@
             h(Button, { onClick: onStop, disabled: loading || !status?.running }, "Stop"),
             h(Button, { onClick: onRestart, disabled: loading }, "Restart"),
             h(Button, { onClick: onInstallDeps, disabled: loading }, "Install Dependencies")
+          )
+        )
+      ),
+      h(Card, null,
+        h(CardHeader, null,
+          h(CardTitle, null, "Chat Users"),
+          h("p", { className: "text-sm text-muted-foreground" }, "Add or remove users for the standalone chat UI.")
+        ),
+        h(CardContent, { className: "space-y-4" },
+          h("form", { onSubmit: onCreateUser, className: "flex flex-col sm:flex-row gap-2" },
+            h("input", {
+              type: "text",
+              placeholder: "Username",
+              value: newUsername,
+              onChange: (e) => setNewUsername(e.target.value),
+              required: true,
+              className: "flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+            }),
+            h("input", {
+              type: "password",
+              placeholder: "Password",
+              value: newPassword,
+              onChange: (e) => setNewPassword(e.target.value),
+              required: true,
+              className: "flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+            }),
+            h(Button, { type: "submit", disabled: loading }, "Add User")
+          ),
+          h("div", { className: "space-y-2" },
+            users.length === 0 && h("p", { className: "text-sm text-muted-foreground" }, "No users yet."),
+            users.map((u) => h("div", {
+              key: u.user_id,
+              className: "flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+            },
+              h("span", null, u.username),
+              h(Button, {
+                variant: "destructive",
+                size: "sm",
+                onClick: () => onDeleteUser(u.user_id),
+                disabled: loading
+              }, "Delete")
+            ))
           )
         )
       ),
