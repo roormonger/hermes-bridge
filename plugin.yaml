@@ -9,3 +9,4 @@ provides_tools:
   - hermes_bridge_configure
   - hermes_bridge_status
   - hermes_bridge_restart
+  - hermes_bridge_install_dependencies

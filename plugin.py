@@ -122,6 +122,21 @@ def _schema(name: str, description: str, params: dict) -> dict:
 
 def register(ctx) -> None:
     """Called by Hermes during plugin discovery."""
+    import traceback
+
+    _PLUGIN_ROOT = Path(__file__).resolve().parent
+    _ERROR_LOG = _PLUGIN_ROOT / "run" / "register-error.log"
+
+    try:
+        _do_register(ctx)
+    except Exception:
+        _ERROR_LOG.parent.mkdir(parents=True, exist_ok=True)
+        _ERROR_LOG.write_text(traceback.format_exc(), encoding="utf-8")
+        raise
+
+
+def _do_register(ctx) -> None:
+    """Actual registration logic."""
     ctx.register_cli_command(
         name="hermes-bridge",
         help="Manage the hermes-bridge Open WebUI bridge daemon",
