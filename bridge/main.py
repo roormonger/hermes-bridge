@@ -101,11 +101,6 @@ class GateChoiceRequest(BaseModel):
     choice: str
 
 
-class RegisterRequest(BaseModel):
-    username: str
-    password: str
-
-
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -169,16 +164,6 @@ def _resolve_gate_choice(options: list[str], choice: str) -> str | None:
 @app.get("/healthz")
 async def healthz() -> dict:
     return {"status": "ok"}
-
-
-@app.post("/api/auth/register")
-async def register(request: RegisterRequest) -> AuthResponse:
-    try:
-        user = users.create_user(request.username, request.password)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    token = users.create_token(user["user_id"])
-    return AuthResponse(user_id=user["user_id"], username=user["username"], token=token)
 
 
 @app.post("/api/auth/login")
