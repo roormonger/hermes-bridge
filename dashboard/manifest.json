@@ -3,7 +3,7 @@
   "label": "Hermes Bridge",
   "description": "Control the hermes-bridge daemon, view logs, and edit bridge config from the dashboard.",
   "icon": "Waypoints",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "tab": {
     "path": "/hermes-bridge",
     "position": "end"

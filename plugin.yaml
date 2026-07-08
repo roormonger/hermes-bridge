@@ -1,5 +1,5 @@
 name: hermes-bridge
-version: 0.1.0
+version: 0.1.1
 description: >
   Runs a FastAPI bridge between Open WebUI and the Hermes CLI.
   Manages persistent PTY chat sessions, exposes gate interrupts,
