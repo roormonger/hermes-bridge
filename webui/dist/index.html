@@ -5,7 +5,20 @@
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hermes Chat</title>
-    <script type="module" crossorigin src="/static/assets/index-D_ILiJeC.js"></script>
+    <script>
+      (function () {
+        if (typeof crypto !== "undefined" && !crypto.randomUUID) {
+          crypto.randomUUID = function () {
+            return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+              var r = (Math.random() * 16) | 0;
+              var v = c === "x" ? r : (r & 0x3) | 0x8;
+              return v.toString(16);
+            });
+          };
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/static/assets/index-DeGx7-_8.js"></script>
     <link rel="stylesheet" crossorigin href="/static/assets/index-B44c2hSM.css">
   </head>
   <body>
