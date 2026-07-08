@@ -50,11 +50,12 @@ const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
   id: msg.id,
   role: msg.role,
   content: [{ type: "text", text: msg.content }],
-  status: msg.status
-    ? msg.status === "running"
-      ? { type: "running" }
-      : { type: "complete", reason: "stop" }
-    : undefined,
+  status:
+    msg.role === "assistant" && msg.status
+      ? msg.status === "running"
+        ? { type: "running" }
+        : { type: "complete", reason: "stop" }
+      : undefined,
   metadata: msg.gate ? { custom: { gate: msg.gate } } : undefined,
 });
 
