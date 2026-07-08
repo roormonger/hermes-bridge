@@ -105,6 +105,33 @@ function GateDialog({
 // Sidebar
 // ---------------------------------------------------------------------------
 
+function formatGroup(date: Date): string {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfYesterday = new Date(startOfToday);
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+  const startOfWeek = new Date(startOfToday);
+  startOfWeek.setDate(startOfWeek.getDate() - 7);
+
+  if (date >= startOfToday) return "Today";
+  if (date >= startOfYesterday) return "Yesterday";
+  if (date >= startOfWeek) return "Previous 7 days";
+  return "Older";
+}
+
+function groupChats(chats: Chat[]): { label: string; items: Chat[] }[] {
+  const groups = new Map<string, Chat[]>();
+  for (const chat of chats) {
+    const label = formatGroup(new Date(chat.updated_at || chat.created_at));
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label)!.push(chat);
+  }
+  const order = ["Today", "Yesterday", "Previous 7 days", "Older"];
+  return order
+    .filter((label) => groups.has(label))
+    .map((label) => ({ label, items: groups.get(label)! }));
+}
+
 function ChatSidebar({
   chats,
   currentChatId,
@@ -126,105 +153,134 @@ function ChatSidebar({
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const groups = groupChats(chats);
 
   return (
-    <div className="w-64 border-r bg-card flex flex-col h-full">
-      <div className="p-4 border-b flex items-center justify-between">
-        <h2 className="font-semibold text-card-foreground">Chats</h2>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" onClick={onNew}>
-            <Plus className="size-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={onLogout} title="Logout">
-            <LogOut className="size-4" />
-          </Button>
-        </div>
+    <div className="w-72 border-r bg-card flex flex-col h-full">
+      <div className="p-3">
+        <Button
+          variant="outline"
+          className="w-full justify-start gap-2 h-10"
+          onClick={onNew}
+        >
+          <Plus className="size-4" />
+          New Chat
+        </Button>
       </div>
-      <div className="px-3 py-2 text-xs text-muted-foreground border-b">
-        Logged in as <span className="font-medium text-foreground">{username}</span>
-      </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {chats.map((chat) => (
-          <div
-            key={chat.chat_id}
-            className={cn(
-              "group flex items-center gap-2 rounded-md px-2 py-2 text-sm cursor-pointer",
-              currentChatId === chat.chat_id
-                ? "bg-accent text-accent-foreground"
-                : "hover:bg-muted"
-            )}
-            onClick={() => onSelect(chat.chat_id)}
-          >
-            <MessageSquare className="size-4 shrink-0" />
-            {editingId === chat.chat_id ? (
-              <>
-                <Input
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="h-7 flex-1"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      onRename(chat.chat_id, editTitle);
-                      setEditingId(null);
-                    }
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  autoFocus
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-6"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRename(chat.chat_id, editTitle);
-                    setEditingId(null);
-                  }}
-                >
-                  <Check className="size-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-6"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingId(null);
-                  }}
-                >
-                  <X className="size-3" />
-                </Button>
-              </>
-            ) : (
-              <>
-                <span className="flex-1 truncate">{chat.title}</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 opacity-0 group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingId(chat.chat_id);
-                    setEditTitle(chat.title);
-                  }}
-                >
-                  <Pencil className="size-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 opacity-0 group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(chat.chat_id);
-                  }}
-                >
-                  <Trash2 className="size-3" />
-                </Button>
-              </>
-            )}
+
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-4">
+        {groups.length === 0 && (
+          <p className="text-sm text-muted-foreground px-2">No chats yet.</p>
+        )}
+        {groups.map(({ label, items }) => (
+          <div key={label} className="space-y-1">
+            <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              {label}
+            </h3>
+            {items.map((chat) => (
+              <div
+                key={chat.chat_id}
+                className={cn(
+                  "group relative flex items-center gap-3 rounded-lg px-2 py-2 text-sm cursor-pointer transition-colors",
+                  currentChatId === chat.chat_id
+                    ? "bg-accent text-accent-foreground"
+                    : "hover:bg-muted"
+                )}
+                onClick={() => onSelect(chat.chat_id)}
+              >
+                <MessageSquare className="size-4 shrink-0 mt-0.5 text-muted-foreground" />
+                {editingId === chat.chat_id ? (
+                  <div className="flex flex-1 items-center gap-1">
+                    <Input
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      className="h-7 flex-1"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          onRename(chat.chat_id, editTitle);
+                          setEditingId(null);
+                        }
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      autoFocus
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRename(chat.chat_id, editTitle);
+                        setEditingId(null);
+                      }}
+                    >
+                      <Check className="size-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingId(null);
+                      }}
+                    >
+                      <X className="size-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="flex-1 truncate">{chat.title}</span>
+                    <div
+                      className={cn(
+                        "flex items-center gap-0.5",
+                        currentChatId === chat.chat_id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      )}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingId(chat.chat_id);
+                          setEditTitle(chat.title);
+                        }}
+                      >
+                        <Pencil className="size-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-destructive hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete(chat.chat_id);
+                        }}
+                      >
+                        <Trash2 className="size-3" />
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
           </div>
         ))}
+      </div>
+
+      <div className="p-3 border-t">
+        <div className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 hover:bg-muted cursor-pointer" onClick={onLogout}>
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <span className="text-sm font-medium text-primary">
+                {username.slice(0, 1).toUpperCase()}
+              </span>
+            </div>
+            <span className="text-sm font-medium truncate">{username}</span>
+          </div>
+          <LogOut className="size-4 shrink-0 text-muted-foreground" />
+        </div>
       </div>
     </div>
   );
