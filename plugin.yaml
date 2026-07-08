@@ -1,0 +1,11 @@
+name: hermes-bridge
+version: 0.1.0
+description: >
+  Runs a FastAPI bridge between Open WebUI and the Hermes CLI.
+  Manages persistent PTY chat sessions, exposes gate interrupts,
+  and lets Hermes configure the bridge via tools.
+author: roormonger
+provides_tools:
+  - hermes_bridge_configure
+  - hermes_bridge_status
+  - hermes_bridge_restart

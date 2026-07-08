@@ -21,16 +21,23 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from .config import load_config
 from .database import ChatSessionStore
 from .pty_manager import SessionManager
 
-logging.basicConfig(level=logging.INFO)
+config = load_config()
+logging.basicConfig(level=getattr(logging, config.log_level.upper(), logging.INFO))
 logger = logging.getLogger("hermes_bridge")
 
 app = FastAPI(title="hermes-bridge", version="0.1.0")
 
 store = ChatSessionStore()
-sessions = SessionManager()
+sessions = SessionManager(config)
+
+
+@app.on_event("startup")
+async def _on_startup() -> None:
+    logger.info("hermes-bridge listening on %s:%s", config.host, config.port)
 
 
 class ChatRequest(BaseModel):

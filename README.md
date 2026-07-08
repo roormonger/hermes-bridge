@@ -70,16 +70,23 @@ Open WebUI  ──────────────────────�
 ## Repository layout
 
 ```
+├── plugin.yaml          Hermes plugin manifest
+├── plugin.py            Hermes plugin entry point (CLI commands + tools)
 ├── README.md
 ├── requirements.txt
 ├── bridge/
 │   ├── __init__.py
 │   ├── main.py          FastAPI app: /v1/chat, /v1/gate/resolve, /v1/chat/drain, /healthz
 │   ├── pty_manager.py   PTY subprocess lifecycle + gate-detection heuristics
-│   └── database.py      SQLite chat_id -> hermes_session_id mapping
+│   ├── database.py      SQLite chat_id -> hermes_session_id mapping
+│   ├── config.py        YAML config loading/validation
+│   └── daemon.py        Background daemon + watchdog
 └── openwebui/
     ├── pipe_plugin.py    Open WebUI Pipe function (chat model entry point)
-    └── action_plugin.py  Open WebUI Action function (gate resolver button)
+    ├── action_plugin.py  Open WebUI Action function (gate resolver button)
+    ├── build_exports.py  JSON export generator
+    ├── pipe_plugin.json  Ready-to-import Open WebUI Pipe JSON
+    └── action_plugin.json Ready-to-import Open WebUI Action JSON
 ```
 
 ## Requirements
@@ -91,21 +98,35 @@ Open WebUI  ──────────────────────�
 
 ## Quickstart
 
-### One-line installer (Linux/macOS/WSL)
+### Install as a Hermes plugin
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/roormonger/hermes-bridge/main/install.sh | bash
+hermes plugins install https://github.com/roormonger/hermes-bridge.git
+hermes hermes-bridge start
 ```
 
-The installer clones the repo into `~/.hermes-bridge`, creates a venv, installs dependencies, searches
-common Hermes locations, installs a `hermes-bridge` launcher in `~/.local/bin`, and optionally sets
-up a systemd user service on Linux. After it runs:
+The plugin is installed into `~/.hermes/plugins/hermes-bridge/`. `hermes hermes-bridge start` spawns a
+detached background daemon that runs the FastAPI server and watches its own health, restarting on failure.
+
+Verify it's alive:
 
 ```bash
-hermes-bridge --host 0.0.0.0 --port 8000
+hermes hermes-bridge status
+# {"running": true, "pid": ..., "healthy": true, "config": {...}}
 ```
 
-### Manual install
+### Plugin CLI
+
+| Command | Purpose |
+|---|---|
+| `hermes hermes-bridge start` | Start the background daemon with health watchdog |
+| `hermes hermes-bridge stop` | Stop the daemon |
+| `hermes hermes-bridge restart` | Restart the daemon |
+| `hermes hermes-bridge status` | Show PID, health, and current config |
+| `hermes hermes-bridge logs` | Tail the daemon log |
+| `hermes hermes-bridge configure --port 8080 --restart` | Write config and optionally restart |
+
+### Manual / development install
 
 ```bash
 git clone https://github.com/roormonger/hermes-bridge.git
@@ -122,14 +143,14 @@ uvicorn bridge.main:app --host 0.0.0.0 --port 8000
 Verify it's alive:
 
 ```bash
-curl http://localhost:8000/healthz
+curl http://localhost:6969/healthz
 # {"status":"ok"}
 ```
 
 Try a chat turn directly (without Open WebUI) to confirm the PTY/streaming path works end to end:
 
 ```bash
-curl -N -X POST http://localhost:8000/v1/chat \
+curl -N -X POST http://localhost:6969/v1/chat \
   -H "Content-Type: application/json" \
   -d '{"chat_id": "test-chat-1", "message": "hello"}'
 ```
@@ -139,7 +160,7 @@ instead see a single `data: {"type": "gate_interrupt", ...}` line and the stream
 with:
 
 ```bash
-curl -X POST http://localhost:8000/v1/gate/resolve \
+curl -X POST http://localhost:6969/v1/gate/resolve \
   -H "Content-Type: application/json" \
   -d '{"chat_id": "test-chat-1", "gate_id": "<gate_id from above>", "choice": "Yes"}'
 ```
@@ -196,7 +217,7 @@ file. We ship ready-to-import JSON exports alongside the plugin source.
 
 1. In Open WebUI, go to **Workspace → Functions → Import**.
 2. Import `openwebui/pipe_plugin.json`. Open its valves and set `BRIDGE_URL` to your bridge's address
-   (e.g. `http://<host>:8000`). Enable it as a model under **Settings → Models**.
+   (default: `http://localhost:6969`). Enable it as a model under **Settings → Models**.
 3. Import `openwebui/action_plugin.json`. Set the same `BRIDGE_URL` valve. Optionally register it twice
    with different `CHOICE` valves (e.g. `Yes` / `No`) to get one-click approve/deny buttons under each
    assistant message, or leave `CHOICE` blank to default to the gate's first option.
@@ -211,21 +232,38 @@ file. We ship ready-to-import JSON exports alongside the plugin source.
 
 ## Configuration reference
 
-Environment variables read by `bridge/main.py` / `bridge/pty_manager.py` (all optional):
+The bridge reads its runtime settings from `~/.hermes/plugins/hermes-bridge/config.yaml` (or
+`config.yaml` in the repo root for a manual install):
 
-| Variable | Default | Purpose |
+| Key | Default | Purpose |
 |---|---|---|
-| `HERMES_BIN` | `hermes` | Path or name of the Hermes CLI executable. |
-| `HERMES_GATE_IDLE_THRESHOLD` | `0.35` | Seconds of output silence before the trailing buffer is checked for a gate prompt that never ended in a newline. |
-| `HERMES_SESSION_IDLE_TIMEOUT` | `600` | Seconds of chat inactivity before the subprocess is killed. Resumed transparently on the next message. |
+| `host` | `127.0.0.1` | HTTP host to bind. |
+| `port` | `6969` | HTTP port to bind. |
+| `hermes_bin` | `hermes` | Path or name of the Hermes CLI executable. `HERMES_BIN` env var overrides this. |
+| `session_idle_timeout` | `600` | Seconds of chat inactivity before the subprocess is killed. Resumed transparently on the next message. |
+| `gate_idle_threshold` | `0.35` | Seconds of output silence before the trailing buffer is checked for a gate prompt that never ended in a newline. |
+| `log_level` | `INFO` | Server log level. |
+| `auto_start` | `true` | Start the daemon automatically when the Hermes plugin loads. |
 
-Open WebUI plugin valves (set per-import in the Open WebUI UI, not via env vars):
+Change settings with the CLI:
+
+```bash
+hermes hermes-bridge configure --port 8080 --hermes-bin /usr/local/bin/hermes --restart
+```
+
+Or let Hermes change them via the registered tools:
+
+- `hermes_bridge_configure` — write any bridge-side setting.
+- `hermes_bridge_status` — check daemon health and current config.
+- `hermes_bridge_restart` — restart the daemon to apply config changes.
+
+Open WebUI plugin valves (set per-import in the Open WebUI UI):
 
 | Plugin | Valve | Default | Purpose |
 |---|---|---|---|
-| Pipe | `BRIDGE_URL` | `http://localhost:8000` | Base URL of the bridge. |
+| Pipe | `BRIDGE_URL` | `http://localhost:6969` | Base URL of the bridge. |
 | Pipe | `REQUEST_TIMEOUT` | `600` | Seconds to wait on the SSE stream. |
-| Action | `BRIDGE_URL` | `http://localhost:8000` | Base URL of the bridge. |
+| Action | `BRIDGE_URL` | `http://localhost:6969` | Base URL of the bridge. |
 | Action | `CHOICE` | `""` (uses first option) | Fixed choice this button always resolves with. |
 | Action | `REQUEST_TIMEOUT` | `30` | Seconds to wait on the resolve/drain calls. |
 
@@ -245,7 +283,7 @@ Open WebUI plugin valves (set per-import in the Open WebUI UI, not via env vars)
     claude-3-5-sonnet
   ```
 
-Detection runs opportunistically after every PTY read, and again after `HERMES_GATE_IDLE_THRESHOLD`
+Detection runs opportunistically after every PTY read, and again after `gate_idle_threshold`
 seconds of output silence (to catch prompts that don't end in a newline, since the cursor just sits
 there waiting for a keypress). Text that doesn't match either shape is released to the normal `"text"`
 stream as soon as the idle check clears it.
@@ -265,7 +303,7 @@ The chat has an unresolved gate. Reply with one of the option names listed in th
 
 **Gate never gets detected (agent looks "stuck")**
 Hermes may be emitting an ANSI escape sequence shape or prompt wording not covered by `GateDetector`.
-Set `HERMES_GATE_IDLE_THRESHOLD` lower to detect faster, and/or add a new pattern per
+Lower `gate_idle_threshold` in the config to detect faster, and/or add a new pattern per
 [Gate detection internals](#gate-detection-internals). As a workaround, the subprocess is still
 writable — you can add a temporary debug branch to log `self._line_buffer` in `_check_for_gate`.
 

@@ -19,7 +19,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent / "hermes_bridge.db"
+from .config import data_dir
+
+DEFAULT_DB_PATH = data_dir() / "hermes_bridge.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS chat_sessions (

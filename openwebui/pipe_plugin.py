@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 class Pipe:
     class Valves(BaseModel):
         BRIDGE_URL: str = Field(
-            default="http://localhost:8000",
+            default="http://localhost:6969",
             description="Base URL of the hermes-bridge FastAPI service.",
         )
         REQUEST_TIMEOUT: int = Field(

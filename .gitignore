@@ -5,3 +5,5 @@ venv/
 bridge/hermes_bridge.db
 *.db
 .env
+run/
+config.yaml

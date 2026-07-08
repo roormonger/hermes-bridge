@@ -36,7 +36,7 @@ GATE_COMMENT_RE = re.compile(
 class Action:
     class Valves(BaseModel):
         BRIDGE_URL: str = Field(
-            default="http://localhost:8000",
+            default="http://localhost:6969",
             description="Base URL of the hermes-bridge FastAPI service.",
         )
         CHOICE: str = Field(

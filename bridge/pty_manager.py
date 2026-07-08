@@ -40,16 +40,12 @@ except ImportError:  # pragma: no cover - PTY is POSIX-only.
 # Configuration
 # --------------------------------------------------------------------------- #
 
+from .config import BridgeConfig, effective_hermes_bin
+
+# Defaults are now supplied by BridgeConfig. These module-level fallbacks only
+# matter if the module is imported without config (e.g. ad-hoc testing).
 HERMES_BIN = os.environ.get("HERMES_BIN", "hermes")
-
-# How long (seconds) a subprocess may sit with no output/activity before we
-# consider it "settled" and safe to check the trailing buffer for a gate
-# prompt that never terminated with a newline (e.g. "Proceed? (Y/n): ").
 GATE_IDLE_THRESHOLD = float(os.environ.get("HERMES_GATE_IDLE_THRESHOLD", "0.35"))
-
-# How long (seconds) a session may sit with no chat activity before its
-# subprocess is killed to free resources. It is transparently respawned
-# (via `hermes chat -r <session_id>`) on the next message.
 SESSION_IDLE_TIMEOUT = float(os.environ.get("HERMES_SESSION_IDLE_TIMEOUT", "600"))
 
 READ_CHUNK_SIZE = 4096
@@ -154,7 +150,7 @@ class HermesPtySession:
         chat_id: str,
         hermes_session_id: str,
         loop: asyncio.AbstractEventLoop,
-        hermes_bin: str = HERMES_BIN,
+        config: BridgeConfig | None = None,
     ) -> None:
         if pty is None:
             raise RuntimeError(
@@ -164,7 +160,9 @@ class HermesPtySession:
 
         self.chat_id = chat_id
         self.hermes_session_id = hermes_session_id
-        self.hermes_bin = hermes_bin
+        self.config = config
+        self.hermes_bin = effective_hermes_bin(config) if config else HERMES_BIN
+        self.gate_idle_threshold = config.gate_idle_threshold if config else GATE_IDLE_THRESHOLD
         self.loop = loop
 
         self.master_fd: Optional[int] = None
@@ -265,7 +263,7 @@ class HermesPtySession:
                 if (
                     self._line_buffer
                     and not gate_checked_for_current_buffer
-                    and idle_for >= GATE_IDLE_THRESHOLD
+                    and idle_for >= self.gate_idle_threshold
                 ):
                     gate_checked_for_current_buffer = True
                     self._check_for_gate()
@@ -383,10 +381,12 @@ class HermesPtySession:
 class SessionManager:
     """Owns all live `HermesPtySession`s, keyed by Open WebUI chat_id."""
 
-    def __init__(self) -> None:
+    def __init__(self, config: BridgeConfig | None = None) -> None:
         self._sessions: dict[str, HermesPtySession] = {}
         self._lock = threading.Lock()
         self._reaper_started = False
+        self.config = config
+        self.session_idle_timeout = config.session_idle_timeout if config else SESSION_IDLE_TIMEOUT
 
     def get_or_start(
         self, chat_id: str, hermes_session_id: str, loop: asyncio.AbstractEventLoop
@@ -394,7 +394,7 @@ class SessionManager:
         with self._lock:
             session = self._sessions.get(chat_id)
             if session is None or not session.is_running():
-                session = HermesPtySession(chat_id, hermes_session_id, loop)
+                session = HermesPtySession(chat_id, hermes_session_id, loop, self.config)
                 session.start()
                 self._sessions[chat_id] = session
             self._ensure_reaper()
@@ -424,7 +424,7 @@ class SessionManager:
                 stale = [
                     (chat_id, session)
                     for chat_id, session in self._sessions.items()
-                    if now - session.last_active > SESSION_IDLE_TIMEOUT
+                    if now - session.last_active > self.session_idle_timeout
                 ]
                 for chat_id, _ in stale:
                     self._sessions.pop(chat_id, None)
