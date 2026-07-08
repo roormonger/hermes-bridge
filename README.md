@@ -248,12 +248,16 @@ The bridge reads its runtime settings from `~/.hermes/plugins/hermes-bridge/conf
 | `gate_idle_threshold` | `0.35` | Seconds of output silence before the trailing buffer is checked for a gate prompt that never ended in a newline. |
 | `log_level` | `INFO` | Server log level. |
 | `auto_start` | `true` | Start the daemon automatically when the Hermes plugin loads. |
+| `debug` | `false` | Enable verbose PTY/gate-detection logging (forces log level to DEBUG for the bridge). |
 
 Change settings with the CLI:
 
 ```bash
 hermes hermes-bridge configure --port 8080 --hermes-bin /usr/local/bin/hermes --restart
+hermes hermes-bridge configure --debug true --restart
 ```
+
+When `debug` is enabled, the daemon log records every raw PTY chunk, the ANSI-stripped version, and every gate-detection attempt. Use it to capture prompt shapes that `GateDetector` misses.
 
 Or let Hermes change them via the registered tools:
 
@@ -270,6 +274,7 @@ Open WebUI plugin valves (set per-import in the Open WebUI UI):
 | Pipe | `REQUEST_TIMEOUT` | `600` | Seconds to wait on the SSE stream. |
 | Action | `BRIDGE_URL` | `http://localhost:6969` | Base URL of the bridge. |
 | Action | `CHOICE` | `""` (uses first option) | Fixed choice this button always resolves with. |
+| Action | `STREAM_TOKENS` | `true` | Stream resumed tokens via message events. Set to `false` on older Open WebUI versions that don't support `event_emitter` message events; the action will return the full resumed text as a single message. |
 | Action | `REQUEST_TIMEOUT` | `30` | Seconds to wait on the resolve/drain calls. |
 
 ## Gate detection internals
@@ -308,25 +313,27 @@ The chat has an unresolved gate. Reply with one of the option names listed in th
 
 **Gate never gets detected (agent looks "stuck")**
 Hermes may be emitting an ANSI escape sequence shape or prompt wording not covered by `GateDetector`.
-Lower `gate_idle_threshold` in the config to detect faster, and/or add a new pattern per
-[Gate detection internals](#gate-detection-internals). As a workaround, the subprocess is still
-writable — you can add a temporary debug branch to log `self._line_buffer` in `_check_for_gate`.
+Enable `debug: true` in the config, restart the daemon, and trigger the gate again. The daemon log will
+show the raw and stripped PTY output for every chunk plus the exact buffer being checked. Use that
+output to add a new pattern per [Gate detection internals](#gate-detection-internals). You can also
+lower `gate_idle_threshold` to detect faster.
 
 **Action button does nothing**
 Confirm the Action plugin's `BRIDGE_URL` valve matches the running bridge, and that the assistant
 message still contains the hidden `<!-- hermes-gate ... -->` comment (don't edit/regenerate the
-message after a gate is emitted).
+message after a gate is emitted). If the action resolves the gate but the resumed text doesn't appear,
+your Open WebUI version may not support `event_emitter` message events. Set the Action's `STREAM_TOKENS`
+valve to `false` to receive the resumed text as a single batched message instead.
 
 ## Known limitations / roadmap
 
 - Gate detection is regex/heuristic-based against ANSI-stripped PTY output. It handles the common
   `questionary` confirm and single-select shapes; checkboxes, autocomplete, and masked/secret input
-  need additional patterns.
+  need additional patterns. Enable `debug: true` to capture the raw prompt output needed to add new
+  patterns.
 - One subprocess per active chat, in-process `SessionManager` state — no cross-process/multi-worker
   session sharing. Fine for a single-instance bridge deployment; not suitable behind a
   horizontally-scaled/load-balanced uvicorn setup without moving session state to a shared store.
-- The Action plugin's ability to append streamed tokens back into the active chat message depends on
-  your Open WebUI version's `__event_emitter__` `"message"` event support.
 - The bridge service requires a POSIX host (Linux/macOS/WSL) because of the `pty` module. The plugin
   can be installed on any Hermes host, but the daemon will fail on native Windows.
 - The plugin runs inside Hermes' Python environment. `hermes hermes-bridge install-deps` handles the

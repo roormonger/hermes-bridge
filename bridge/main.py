@@ -26,7 +26,10 @@ from .database import ChatSessionStore
 from .pty_manager import SessionManager
 
 config = load_config()
-logging.basicConfig(level=getattr(logging, config.log_level.upper(), logging.INFO))
+_log_level = getattr(logging, config.log_level.upper(), logging.INFO)
+if config.debug:
+    _log_level = logging.DEBUG
+logging.basicConfig(level=_log_level)
 logger = logging.getLogger("hermes_bridge")
 
 app = FastAPI(title="hermes-bridge", version="0.1.0")

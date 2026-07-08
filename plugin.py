@@ -45,6 +45,9 @@ def _setup_argparse(subparser):
     )
     cfg_parser.add_argument("--log-level", type=str, help="Log level (DEBUG/INFO/WARNING/ERROR)")
     cfg_parser.add_argument(
+        "--debug", type=lambda x: x.lower() in ("1", "true", "yes"), help="Enable verbose PTY/gate-detection logging"
+    )
+    cfg_parser.add_argument(
         "--auto-start", type=lambda x: x.lower() in ("1", "true", "yes"), help="Auto-start daemon"
     )
     cfg_parser.add_argument(
@@ -84,6 +87,8 @@ def _handle_cli(args) -> None:
             updates["gate_idle_threshold"] = args.gate_idle_threshold
         if args.log_level is not None:
             updates["log_level"] = args.log_level.upper()
+        if hasattr(args, "debug") and args.debug is not None:
+            updates["debug"] = args.debug
         if hasattr(args, "auto_start") and args.auto_start is not None:
             updates["auto_start"] = args.auto_start
         cfg = update_config(updates)
@@ -124,6 +129,7 @@ def register(ctx) -> None:
                 "session_idle_timeout": {"type": "number", "description": "Seconds before idle Hermes PTY sessions are torn down"},
                 "gate_idle_threshold": {"type": "number", "description": "Seconds to wait for a gate prompt to settle"},
                 "log_level": {"type": "string", "description": "Server log level (DEBUG/INFO/WARNING/ERROR)"},
+                "debug": {"type": "boolean", "description": "Enable verbose PTY/gate-detection logging"},
                 "restart": {"type": "boolean", "description": "Restart the daemon to apply changes"},
             },
         ),

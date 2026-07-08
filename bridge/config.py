@@ -28,6 +28,7 @@ DEFAULTS: dict[str, Any] = {
     "gate_idle_threshold": 0.35,
     "log_level": "INFO",
     "auto_start": True,
+    "debug": False,
 }
 
 
@@ -40,6 +41,7 @@ class BridgeConfig:
     gate_idle_threshold: float
     log_level: str
     auto_start: bool
+    debug: bool
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +52,7 @@ class BridgeConfig:
             "gate_idle_threshold": self.gate_idle_threshold,
             "log_level": self.log_level,
             "auto_start": self.auto_start,
+            "debug": self.debug,
         }
 
 

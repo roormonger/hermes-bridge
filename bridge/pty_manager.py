@@ -18,6 +18,7 @@ session from wherever it left off.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import select
@@ -41,6 +42,8 @@ except ImportError:  # pragma: no cover - PTY is POSIX-only.
 # --------------------------------------------------------------------------- #
 
 from .config import BridgeConfig, effective_hermes_bin
+
+logger = logging.getLogger("hermes_bridge.pty")
 
 # Defaults are now supplied by BridgeConfig. These module-level fallbacks only
 # matter if the module is imported without config (e.g. ad-hoc testing).
@@ -163,6 +166,7 @@ class HermesPtySession:
         self.config = config
         self.hermes_bin = effective_hermes_bin(config) if config else HERMES_BIN
         self.gate_idle_threshold = config.gate_idle_threshold if config else GATE_IDLE_THRESHOLD
+        self.debug = bool(config.debug if config else False)
         self.loop = loop
 
         self.master_fd: Optional[int] = None
@@ -253,7 +257,15 @@ class HermesPtySession:
                 if not chunk:
                     break
 
-                text = ANSI_ESCAPE_RE.sub("", chunk.decode("utf-8", errors="ignore"))
+                raw_text = chunk.decode("utf-8", errors="ignore")
+                text = ANSI_ESCAPE_RE.sub("", raw_text)
+                if self.debug:
+                    logger.debug(
+                        "chat_id=%s raw_chunk=%r stripped=%r",
+                        self.chat_id,
+                        raw_text,
+                        text,
+                    )
                 self._line_buffer += text
                 last_data_time = time.monotonic()
                 gate_checked_for_current_buffer = False
@@ -304,12 +316,20 @@ class HermesPtySession:
         if self._pending_gate is not None or not self._line_buffer.strip():
             return
 
+        if self.debug:
+            logger.debug("chat_id=%s gate_check buffer=%r", self.chat_id, self._line_buffer)
+
         result = self._gate_detector.detect(self._line_buffer)
         if result is None:
+            if self.debug:
+                logger.debug("chat_id=%s gate_check no_gate", self.chat_id)
             # Not a gate -- release it to the normal text stream instead of
             # holding it forever.
             self._flush_complete_lines(force=True)
             return
+
+        if self.debug:
+            logger.debug("chat_id=%s gate_detected kind=%s prompt=%r options=%s", self.chat_id, *result)
 
         kind, prompt, options = result
         gate = GateInterrupt(gate_id=uuid.uuid4().hex, prompt=prompt, options=options, kind=kind)

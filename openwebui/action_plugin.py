@@ -46,6 +46,15 @@ class Action:
                 "Leave blank to use the first option found in the gate."
             ),
         )
+        STREAM_TOKENS: bool = Field(
+            default=True,
+            description=(
+                "Stream resumed tokens back into the chat via message events. "
+                "Disable this on older Open WebUI versions that don't support "
+                "event_emitter message events; the action will instead return "
+                "the full resumed text as a single message."
+            ),
+        )
         REQUEST_TIMEOUT: int = Field(default=30)
 
     def __init__(self) -> None:
@@ -85,8 +94,10 @@ class Action:
             return None
 
         await self._emit_status(__event_emitter__, f"Resolved with '{choice}'. Resuming...", done=False)
-        await self._drain_and_emit(chat_id, __event_emitter__)
+        resumed = await self._drain_and_emit(chat_id, __event_emitter__)
         await self._emit_status(__event_emitter__, "Done.", done=True)
+        if not self.valves.STREAM_TOKENS:
+            return resumed
         return None
 
     # -- helpers -------------------------------------------------------------
@@ -105,9 +116,12 @@ class Action:
             {"type": "status", "data": {"description": description, "done": done}}
         )
 
-    async def _drain_and_emit(self, chat_id: str, event_emitter) -> None:
-        if event_emitter is None:
-            return
+    async def _drain_and_emit(self, chat_id: str, event_emitter) -> Optional[dict]:
+        """Drain the resumed stream.
+
+        In streaming mode, tokens are emitted as message events. In batch mode,
+        the full text is collected and returned as a single assistant message.
+        """
         try:
             resp = requests.post(
                 f"{self.valves.BRIDGE_URL}/v1/chat/drain",
@@ -118,8 +132,9 @@ class Action:
             resp.raise_for_status()
         except requests.RequestException as exc:
             await self._emit_status(event_emitter, f"Failed to resume stream: {exc}", done=True)
-            return
+            return None
 
+        buffer_parts: list[str] = []
         for raw_line in resp.iter_lines(decode_unicode=True):
             if not raw_line:
                 continue
@@ -131,7 +146,11 @@ class Action:
 
             event_type = event.get("type")
             if event_type == "text":
-                await event_emitter({"type": "message", "data": {"content": event.get("text", "")}})
+                token = event.get("text", "")
+                if self.valves.STREAM_TOKENS and event_emitter is not None:
+                    await event_emitter({"type": "message", "data": {"content": token}})
+                else:
+                    buffer_parts.append(token)
             elif event_type == "gate_interrupt":
                 gate_id = event["gate_id"]
                 options = event.get("options", ["Yes", "No"])
@@ -143,7 +162,14 @@ class Action:
                     f"\n\n---\n🚦 **Hermes needs your input:** {event.get('prompt', '')}\n\n"
                     f"_Reply with one of: {', '.join(options)}_\n---\n{comment}\n"
                 )
-                await event_emitter({"type": "message", "data": {"content": block}})
-                return
+                if self.valves.STREAM_TOKENS and event_emitter is not None:
+                    await event_emitter({"type": "message", "data": {"content": block}})
+                    return None
+                buffer_parts.append(block)
+                return {"data": {"content": "".join(buffer_parts)}}
             elif event_type == "process_exit":
-                return
+                break
+
+        if not self.valves.STREAM_TOKENS:
+            return {"data": {"content": "".join(buffer_parts)}}
+        return None
