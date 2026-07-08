@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover - optional when Hermes provides it.
 
 
 DEFAULTS: dict[str, Any] = {
-    "host": "127.0.0.1",
+    "host": "0.0.0.0",
     "port": 6969,
     "hermes_bin": "hermes",
     "session_idle_timeout": 600,
