@@ -59,7 +59,13 @@ const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
   metadata: msg.gate ? { custom: { gate: msg.gate } } : undefined,
 });
 
-const convertMessage = (msg: ThreadMessageLike): ThreadMessageLike => msg;
+const convertMessage = (msg: ThreadMessageLike): ThreadMessageLike => {
+  if (msg.role !== "assistant" && msg.status) {
+    const { status, ...rest } = msg;
+    return rest;
+  }
+  return msg;
+};
 
 const getAppendText = (msg: AppendMessage): string => {
   if (typeof msg.content === "string") return msg.content;
@@ -392,7 +398,7 @@ function ChatApp() {
           id: String(m.id),
           role: m.role,
           content: m.content,
-          status: "complete" as const,
+          status: m.role === "assistant" ? ("complete" as const) : undefined,
         }))
       );
     } catch (e) {
@@ -600,7 +606,7 @@ function ChatApp() {
       await createBackendMessage(chatId, "user", text);
       setMessages((prev) => [
         ...prev,
-        { id: generateId(), role: "user", content: text, status: "complete" },
+        { id: generateId(), role: "user", content: text },
       ]);
       await streamAssistant(chatId, text);
     },
