@@ -327,13 +327,15 @@ message after a gate is emitted).
   horizontally-scaled/load-balanced uvicorn setup without moving session state to a shared store.
 - The Action plugin's ability to append streamed tokens back into the active chat message depends on
   your Open WebUI version's `__event_emitter__` `"message"` event support.
-- No auth on the bridge endpoints yet — put it behind a reverse proxy / VPN / auth middleware if it's
-  reachable beyond localhost.
 - The bridge service requires a POSIX host (Linux/macOS/WSL) because of the `pty` module. The plugin
   can be installed on any Hermes host, but the daemon will fail on native Windows.
 - The plugin runs inside Hermes' Python environment. `hermes hermes-bridge install-deps` handles the
   bridge's Python dependencies, but it needs network access to pip and permission to write into that
   environment.
+- The bridge endpoints have no built-in auth, but in the normal setup they are protected by Open WebUI's
+  authentication because the Open WebUI Pipe/Action plugins run on the Open WebUI backend and the bridge
+  defaults to `host: 127.0.0.0`. Only expose the bridge beyond localhost (e.g. `0.0.0.0` or a remote host)
+  if you also put it behind a reverse proxy, VPN, or auth middleware.
 
 ## Contributing
 
