@@ -33,6 +33,9 @@ def _setup_argparse(subparser):
     logs_parser = subs.add_parser("logs", help="Show recent bridge logs")
     logs_parser.add_argument("--tail", type=int, default=50, help="Number of log lines")
 
+    test_parser = subs.add_parser("test-gates", help="Run gate-detection dev tests")
+    test_parser.add_argument("-v", "--verbose", action="store_true", help="Print each passing test")
+
     cfg_parser = subs.add_parser("configure", help="Write bridge config values")
     cfg_parser.add_argument("--port", type=int, help="HTTP port")
     cfg_parser.add_argument("--host", type=str, help="HTTP host")
@@ -58,7 +61,7 @@ def _setup_argparse(subparser):
 def _handle_cli(args) -> None:
     cmd = getattr(args, "hermes_bridge_command", None)
     if cmd is None:
-        print("Usage: hermes hermes-bridge {start|stop|restart|status|logs|configure}")
+        print("Usage: hermes hermes-bridge {start|stop|restart|status|logs|configure|test-gates}")
         return
 
     if cmd == "start":
@@ -73,6 +76,14 @@ def _handle_cli(args) -> None:
         print(json.dumps(install_dependencies(auto=True), indent=2))
     elif cmd == "logs":
         print(logs(getattr(args, "tail", 50)))
+    elif cmd == "test-gates":
+        try:
+            from scripts.test_gate_detection import run_tests
+        except ImportError as exc:
+            print(json.dumps({"error": f"Cannot import gate-detection tests: {exc}"}, indent=2))
+            return
+        failures = run_tests(verbose=getattr(args, "verbose", False))
+        print(json.dumps({"failures": failures, "ok": failures == 0}, indent=2))
     elif cmd == "configure":
         updates: dict[str, Any] = {}
         if args.port is not None:

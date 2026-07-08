@@ -129,6 +129,7 @@ hermes hermes-bridge status
 | `hermes hermes-bridge logs` | Tail the daemon log |
 | `hermes hermes-bridge configure --port 8080 --restart` | Write config and optionally restart |
 | `hermes hermes-bridge install-deps` | Install missing Python dependencies into the Hermes environment |
+| `hermes hermes-bridge test-gates -v` | Run gate-detection dev tests against representative questionary prompts |
 
 ### Manual / development install
 
@@ -343,6 +344,27 @@ valve to `false` to receive the resumed text as a single batched message instead
   authentication because the Open WebUI Pipe/Action plugins run on the Open WebUI backend and the bridge
   defaults to `host: 127.0.0.0`. Only expose the bridge beyond localhost (e.g. `0.0.0.0` or a remote host)
   if you also put it behind a reverse proxy, VPN, or auth middleware.
+
+## Development
+
+`scripts/test_gate_detection.py` exercises `GateDetector` against a library of representative
+questionary prompt shapes. Use it while adding new gate-detection patterns:
+
+```bash
+python scripts/test_gate_detection.py
+python scripts/test_gate_detection.py -v
+```
+
+Or run it through the Hermes plugin CLI:
+
+```bash
+hermes hermes-bridge test-gates -v
+```
+
+The test cases cover confirm prompts (`Y/n`, `[y/n]`) and single-select prompts with `❯`/`>` cursors.
+When you hit a prompt shape in the wild that the bridge misses, enable `debug: true`, capture the
+ANSI-stripped buffer from the daemon log, and add it to `scripts/test_gate_detection.py` before
+extending `GateDetector`.
 
 ## Contributing
 
