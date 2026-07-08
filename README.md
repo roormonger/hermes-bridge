@@ -102,8 +102,11 @@ Open WebUI  ──────────────────────�
 
 ```bash
 hermes plugins install https://github.com/roormonger/hermes-bridge.git
+hermes hermes-bridge install-deps
 hermes hermes-bridge start
 ```
+
+`install-deps` checks that the bridge's Python packages (`fastapi`, `uvicorn`, `pydantic`, `pyyaml`) are available in the Hermes Python environment and installs them from `requirements.txt` if any are missing. Hermes itself normally ships with these, but the command makes the install self-contained.
 
 The plugin is installed into `~/.hermes/plugins/hermes-bridge/`. `hermes hermes-bridge start` spawns a
 detached background daemon that runs the FastAPI server and watches its own health, restarting on failure.
@@ -125,6 +128,7 @@ hermes hermes-bridge status
 | `hermes hermes-bridge status` | Show PID, health, and current config |
 | `hermes hermes-bridge logs` | Tail the daemon log |
 | `hermes hermes-bridge configure --port 8080 --restart` | Write config and optionally restart |
+| `hermes hermes-bridge install-deps` | Install missing Python dependencies into the Hermes environment |
 
 ### Manual / development install
 
@@ -256,6 +260,7 @@ Or let Hermes change them via the registered tools:
 - `hermes_bridge_configure` — write any bridge-side setting.
 - `hermes_bridge_status` — check daemon health and current config.
 - `hermes_bridge_restart` — restart the daemon to apply config changes.
+- `hermes_bridge_install_dependencies` — install missing Python packages into the Hermes environment.
 
 Open WebUI plugin valves (set per-import in the Open WebUI UI):
 
@@ -324,6 +329,11 @@ message after a gate is emitted).
   your Open WebUI version's `__event_emitter__` `"message"` event support.
 - No auth on the bridge endpoints yet — put it behind a reverse proxy / VPN / auth middleware if it's
   reachable beyond localhost.
+- The bridge service requires a POSIX host (Linux/macOS/WSL) because of the `pty` module. The plugin
+  can be installed on any Hermes host, but the daemon will fail on native Windows.
+- The plugin runs inside Hermes' Python environment. `hermes hermes-bridge install-deps` handles the
+  bridge's Python dependencies, but it needs network access to pip and permission to write into that
+  environment.
 
 ## Contributing
 

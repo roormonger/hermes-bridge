@@ -20,6 +20,7 @@ if str(_PLUGIN_ROOT) not in sys.path:
 
 from bridge.config import load_config, update_config
 from bridge.daemon import is_running, logs, restart, start, status, stop
+from bridge.dependencies import check_dependencies, install_dependencies
 
 
 def _setup_argparse(subparser):
@@ -28,6 +29,7 @@ def _setup_argparse(subparser):
     subs.add_parser("stop", help="Stop the hermes-bridge daemon")
     subs.add_parser("restart", help="Restart the hermes-bridge daemon")
     subs.add_parser("status", help="Show bridge daemon status")
+    subs.add_parser("install-deps", help="Install missing bridge Python dependencies")
     logs_parser = subs.add_parser("logs", help="Show recent bridge logs")
     logs_parser.add_argument("--tail", type=int, default=50, help="Number of log lines")
 
@@ -57,13 +59,15 @@ def _handle_cli(args) -> None:
         return
 
     if cmd == "start":
-        print(json.dumps(start(), indent=2))
+        print(json.dumps(_start_with_deps(), indent=2))
     elif cmd == "stop":
         print(json.dumps(stop(), indent=2))
     elif cmd == "restart":
-        print(json.dumps(restart(), indent=2))
+        print(json.dumps(_restart_with_deps(), indent=2))
     elif cmd == "status":
         print(json.dumps(status(), indent=2))
+    elif cmd == "install-deps":
+        print(json.dumps(install_dependencies(auto=True), indent=2))
     elif cmd == "logs":
         print(logs(getattr(args, "tail", 50)))
     elif cmd == "configure":
@@ -144,12 +148,29 @@ def register(ctx) -> None:
         handler=_tool_restart,
     )
 
+    ctx.register_tool(
+        schema=_schema(
+            "hermes_bridge_install_dependencies",
+            "Install the Python packages required by hermes-bridge into the Hermes environment if any are missing.",
+            {},
+        ),
+        handler=_tool_install_dependencies,
+    )
+
+    # Warn if dependencies are missing so the user knows to run install-deps.
+    missing = check_dependencies()
+    if missing:
+        print(
+            "[hermes-bridge] Missing dependencies: "
+            f"{', '.join(missing)}. Run `hermes hermes-bridge install-deps` to install them."
+        )
+
     # Auto-start on plugin load if configured. This is best-effort; Hermes
     # plugins are loaded during CLI startup, so the daemon survives beyond
     # the hermes command because we spawn it detached.
     try:
         cfg = load_config()
-        if cfg.auto_start and not is_running():
+        if cfg.auto_start and not is_running() and not missing:
             start()
     except Exception:
         pass
@@ -179,4 +200,30 @@ def _tool_status(_args: dict) -> str:
 
 
 def _tool_restart(_args: dict) -> str:
-    return json.dumps(restart(), indent=2)
+    return json.dumps(_restart_with_deps(), indent=2)
+
+
+def _tool_install_dependencies(_args: dict) -> str:
+    return json.dumps(install_dependencies(auto=True), indent=2)
+
+
+def _start_with_deps() -> dict:
+    missing = check_dependencies()
+    if missing:
+        return {
+            "status": "missing_dependencies",
+            "missing": missing,
+            "message": "Run `hermes hermes-bridge install-deps` before starting the daemon.",
+        }
+    return start()
+
+
+def _restart_with_deps() -> dict:
+    missing = check_dependencies()
+    if missing:
+        return {
+            "status": "missing_dependencies",
+            "missing": missing,
+            "message": "Run `hermes hermes-bridge install-deps` before restarting the daemon.",
+        }
+    return restart()
