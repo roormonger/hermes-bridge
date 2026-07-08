@@ -281,7 +281,13 @@ def _tool_install_dependencies(_args: dict) -> str:
 
 def _user_store() -> Any:
     """Return a UserStore instance (lazy import to avoid bcrypt on load)."""
-    from bridge.users import UserStore
+    try:
+        from bridge.users import UserStore
+    except ImportError as exc:
+        raise RuntimeError(
+            "Auth dependencies (bcrypt/pyjwt) are not installed. "
+            "Run `hermes hermes-bridge install-deps` and try again."
+        ) from exc
 
     return UserStore(secret=auth_secret())
 
