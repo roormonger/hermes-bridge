@@ -15,13 +15,17 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
-from .config import load_config
+from .chat_history import ChatHistoryStore
+from .config import _plugin_dir, load_config
 from .database import ChatSessionStore
 from .pty_manager import SessionManager
 
@@ -35,7 +39,22 @@ logger = logging.getLogger("hermes_bridge")
 app = FastAPI(title="hermes-bridge", version="0.1.0")
 
 store = ChatSessionStore()
+history = ChatHistoryStore()
 sessions = SessionManager(config)
+
+
+# --------------------------------------------------------------------------- #
+# Static web UI
+# --------------------------------------------------------------------------- #
+
+_webui_dir = (_plugin_dir() or Path(__file__).resolve().parent.parent) / "webui"
+if _webui_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(_webui_dir)), name="static")
+
+
+@app.get("/chat")
+async def chat_ui() -> FileResponse:
+    return FileResponse(str(_webui_dir / "index.html"))
 
 
 @app.on_event("startup")
@@ -51,6 +70,27 @@ class ChatRequest(BaseModel):
 class GateResolveRequest(BaseModel):
     chat_id: str
     gate_id: str
+    choice: str
+
+
+class CreateChatRequest(BaseModel):
+    title: str = "New chat"
+
+
+class RenameChatRequest(BaseModel):
+    title: str
+
+
+class SaveMessageRequest(BaseModel):
+    role: str
+    content: str
+
+
+class UpdateMessageRequest(BaseModel):
+    content: str
+
+
+class GateChoiceRequest(BaseModel):
     choice: str
 
 
@@ -167,3 +207,67 @@ async def drain(request: ChatRequest) -> StreamingResponse:
     if session is None:
         raise HTTPException(status_code=404, detail=f"No active session for chat {request.chat_id}")
     return StreamingResponse(_sse_stream(session), media_type="text/event-stream")
+
+
+# --------------------------------------------------------------------------- #
+# Chat history endpoints for the standalone web UI
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/chats")
+async def list_chats() -> list[dict]:
+    return history.list_chats()
+
+
+@app.post("/api/chats")
+async def create_chat(request: CreateChatRequest) -> dict:
+    chat_id = str(uuid.uuid4())
+    history.create_chat(chat_id, request.title)
+    return {"chat_id": chat_id, "title": request.title}
+
+
+@app.get("/api/chats/{chat_id}")
+async def get_chat(chat_id: str) -> dict:
+    chat = history.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return chat
+
+
+@app.patch("/api/chats/{chat_id}")
+async def rename_chat(chat_id: str, request: RenameChatRequest) -> dict:
+    if history.get_chat(chat_id) is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    history.rename_chat(chat_id, request.title)
+    return {"chat_id": chat_id, "title": request.title}
+
+
+@app.delete("/api/chats/{chat_id}")
+async def delete_chat(chat_id: str) -> dict:
+    if history.get_chat(chat_id) is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    history.delete_chat(chat_id)
+    return {"deleted": chat_id}
+
+
+@app.get("/api/chats/{chat_id}/messages")
+async def get_messages(chat_id: str) -> list[dict]:
+    if history.get_chat(chat_id) is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return history.get_messages(chat_id)
+
+
+@app.post("/api/chats/{chat_id}/messages")
+async def save_message(chat_id: str, request: SaveMessageRequest) -> dict:
+    if history.get_chat(chat_id) is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    message_id = history.add_message(chat_id, request.role, request.content)
+    return {"id": message_id, "role": request.role, "content": request.content}
+
+
+@app.put("/api/chats/{chat_id}/messages/{message_id}")
+async def update_message(chat_id: str, message_id: int, request: UpdateMessageRequest) -> dict:
+    if history.get_chat(chat_id) is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    history.update_message(message_id, request.content)
+    return {"id": message_id, "content": request.content}

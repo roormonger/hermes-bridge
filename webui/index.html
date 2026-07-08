@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hermes Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    .message-content pre { background: #1f2937; padding: 0.5rem; border-radius: 0.375rem; overflow-x: auto; }
+    .message-content p { margin-bottom: 0.5rem; }
+    .message-content p:last-child { margin-bottom: 0; }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 h-screen overflow-hidden">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    const API_PREFIX = "";
+
+    async function apiFetch(path, opts = {}) {
+      const res = await fetch(`${API_PREFIX}${path}`, {
+        ...opts,
+        headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      return res.json();
+    }
+
+    async function streamChat(chatId, message, onEvent) {
+      const res = await fetch(`${API_PREFIX}/v1/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, message }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      await readSSE(res.body, onEvent);
+    }
+
+    async function drainChat(chatId, onEvent) {
+      const res = await fetch(`${API_PREFIX}/v1/chat/drain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, message: "" }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      await readSSE(res.body, onEvent);
+    }
+
+    async function resolveGate(chatId, gateId, choice) {
+      return apiFetch("/v1/gate/resolve", {
+        method: "POST",
+        body: JSON.stringify({ chat_id: chatId, gate_id: gateId, choice }),
+      });
+    }
+
+    async function readSSE(body, onEvent) {
+      const reader = body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          const data = trimmed.slice(5).trim();
+          if (!data) continue;
+          try {
+            const event = JSON.parse(data);
+            onEvent(event);
+          } catch (e) {
+            console.error("Failed to parse SSE event:", data, e);
+          }
+        }
+      }
+    }
+
+    function classNames(...args) {
+      return args.filter(Boolean).join(" ");
+    }
+
+    function Sidebar({ chats, currentChatId, onSelect, onCreate, onDelete, onRename }) {
+      const [renaming, setRenaming] = useState(null);
+      const [renameValue, setRenameValue] = useState("");
+
+      const startRename = (chat) => {
+        setRenaming(chat.chat_id);
+        setRenameValue(chat.title);
+      };
+
+      const submitRename = async (chatId) => {
+        await onRename(chatId, renameValue);
+        setRenaming(null);
+      };
+
+      return (
+        <div className="w-64 bg-gray-950 border-r border-gray-800 flex flex-col h-full">
+          <div className="p-4 border-b border-gray-800">
+            <h1 className="text-lg font-semibold text-white">Hermes</h1>
+          </div>
+          <div className="p-3">
+            <button
+              onClick={onCreate}
+              className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-4 py-2 text-sm font-medium transition"
+            >
+              + New chat
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {chats.map((chat) => (
+              <div
+                key={chat.chat_id}
+                className={classNames(
+                  "group flex items-center justify-between rounded-lg px-3 py-2 text-sm cursor-pointer transition",
+                  chat.chat_id === currentChatId ? "bg-gray-800 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+                )}
+              >
+                {renaming === chat.chat_id ? (
+                  <input
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={() => submitRename(chat.chat_id)}
+                    onKeyDown={(e) => e.key === "Enter" && submitRename(chat.chat_id)}
+                    autoFocus
+                    className="bg-gray-900 text-white text-sm rounded px-2 py-1 w-full border border-gray-700 focus:border-indigo-500 outline-none"
+                  />
+                ) : (
+                  <>
+                    <span onClick={() => onSelect(chat.chat_id)} className="flex-1 truncate">
+                      {chat.title}
+                    </span>
+                    <div className="hidden group-hover:flex items-center gap-1 ml-2">
+                      <button onClick={() => startRename(chat)} className="text-gray-500 hover:text-gray-300">✎</button>
+                      <button onClick={() => onDelete(chat.chat_id)} className="text-gray-500 hover:text-red-400">×</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function Message({ role, content, isGate, gate, onChoice }) {
+      const isUser = role === "user";
+      return (
+        <div className={classNames("py-4 px-6", isUser ? "bg-gray-900" : "bg-gray-800")}>
+          <div className="max-w-3xl mx-auto flex gap-4">
+            <div
+              className={classNames(
+                "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                isUser ? "bg-indigo-600 text-white" : "bg-emerald-600 text-white"
+              )}
+            >
+              {isUser ? "U" : "H"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold mb-1 text-gray-300">{isUser ? "You" : "Hermes"}</div>
+              <div className="message-content text-gray-100 whitespace-pre-wrap">{content}</div>
+              {isGate && gate && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {gate.options.map((opt, i) => (
+                    <button
+                      key={i}
+                      onClick={() => onChoice(opt)}
+                      className="bg-gray-700 hover:bg-gray-600 text-white border border-gray-600 rounded-lg px-4 py-2 text-sm font-medium transition"
+                    >
+                      {i + 1}. {opt}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [chats, setChats] = useState([]);
+      const [currentChatId, setCurrentChatId] = useState(null);
+      const [messages, setMessages] = useState([]);
+      const [input, setInput] = useState("");
+      const [isStreaming, setIsStreaming] = useState(false);
+      const [pendingGate, setPendingGate] = useState(null);
+      const [error, setError] = useState(null);
+      const messagesEndRef = useRef(null);
+      const assistantContentRef = useRef("");
+      const assistantMessageIdRef = useRef(null);
+
+      const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      };
+
+      useEffect(() => {
+        scrollToBottom();
+      }, [messages, isStreaming]);
+
+      const loadChats = useCallback(async () => {
+        try {
+          const data = await apiFetch("/api/chats");
+          setChats(data);
+        } catch (e) {
+          setError(e.message);
+        }
+      }, []);
+
+      const loadMessages = useCallback(async (chatId) => {
+        try {
+          const data = await apiFetch(`/api/chats/${chatId}/messages`);
+          setMessages(data);
+        } catch (e) {
+          setError(e.message);
+        }
+      }, []);
+
+      useEffect(() => {
+        loadChats();
+      }, [loadChats]);
+
+      const selectChat = async (chatId) => {
+        setCurrentChatId(chatId);
+        setPendingGate(null);
+        await loadMessages(chatId);
+      };
+
+      const createChat = async () => {
+        try {
+          const chat = await apiFetch("/api/chats", { method: "POST", body: JSON.stringify({ title: "New chat" }) });
+          setChats((prev) => [chat, ...prev]);
+          await selectChat(chat.chat_id);
+        } catch (e) {
+          setError(e.message);
+        }
+      };
+
+      const deleteChat = async (chatId) => {
+        try {
+          await apiFetch(`/api/chats/${chatId}`, { method: "DELETE" });
+          setChats((prev) => prev.filter((c) => c.chat_id !== chatId));
+          if (currentChatId === chatId) {
+            setCurrentChatId(null);
+            setMessages([]);
+          }
+        } catch (e) {
+          setError(e.message);
+        }
+      };
+
+      const renameChat = async (chatId, title) => {
+        try {
+          await apiFetch(`/api/chats/${chatId}`, { method: "PATCH", body: JSON.stringify({ title }) });
+          setChats((prev) => prev.map((c) => (c.chat_id === chatId ? { ...c, title } : c)));
+        } catch (e) {
+          setError(e.message);
+        }
+      };
+
+      const appendMessage = (role, content, extra = {}) => {
+        setMessages((prev) => [...prev, { role, content, ...extra }]);
+      };
+
+      const updateLastAssistant = (fn) => {
+        setMessages((prev) => {
+          const next = [...prev];
+          for (let i = next.length - 1; i >= 0; i--) {
+            if (next[i].role === "assistant") {
+              next[i] = fn(next[i]);
+              return next;
+            }
+          }
+          return next;
+        });
+      };
+
+      const createMessage = async (chatId, role, content) => {
+        try {
+          const data = await apiFetch(`/api/chats/${chatId}/messages`, { method: "POST", body: JSON.stringify({ role, content }) });
+          return data.id;
+        } catch (e) {
+          console.error("Failed to create message:", e);
+          return null;
+        }
+      };
+
+      const updateMessage = async (chatId, messageId, content) => {
+        try {
+          await apiFetch(`/api/chats/${chatId}/messages/${messageId}`, { method: "PUT", body: JSON.stringify({ content }) });
+        } catch (e) {
+          console.error("Failed to update message:", e);
+        }
+      };
+
+      const persistAssistant = async () => {
+        if (currentChatId && assistantMessageIdRef.current !== null) {
+          await updateMessage(currentChatId, assistantMessageIdRef.current, assistantContentRef.current);
+        }
+      };
+
+      const appendAssistantChunk = (text, gate = null) => {
+        assistantContentRef.current += text;
+        updateLastAssistant((msg) => {
+          const updated = { ...msg, content: msg.content + text };
+          if (gate) {
+            updated.isGate = true;
+            updated.gate = gate;
+          }
+          return updated;
+        });
+      };
+
+      const startAssistantMessage = async () => {
+        assistantContentRef.current = "";
+        assistantMessageIdRef.current = null;
+        appendMessage("assistant", "", { streaming: true });
+        assistantMessageIdRef.current = await createMessage(currentChatId, "assistant", "");
+      };
+
+      const handleStreamEvent = (event) => {
+        if (event.type === "text") {
+          appendAssistantChunk(event.text);
+        } else if (event.type === "gate_interrupt") {
+          const gate = { gateId: event.gate_id, options: event.options || [] };
+          setPendingGate({ ...gate, prompt: event.prompt || "" });
+          appendAssistantChunk(
+            "\n\n🚦 Hermes needs your input: " + (event.prompt || ""),
+            gate
+          );
+          setIsStreaming(false);
+          persistAssistant();
+        } else if (event.type === "process_exit") {
+          setIsStreaming(false);
+          persistAssistant();
+        }
+      };
+
+      const sendMessage = async (e) => {
+        e.preventDefault();
+        if (!input.trim() || !currentChatId || isStreaming) return;
+
+        const text = input.trim();
+        setInput("");
+        setError(null);
+        setIsStreaming(true);
+        appendMessage("user", text);
+        await createMessage(currentChatId, "user", text);
+        await startAssistantMessage();
+
+        try {
+          await streamChat(currentChatId, text, handleStreamEvent);
+        } catch (e) {
+          setError(e.message);
+          setIsStreaming(false);
+        }
+      };
+
+      const handleChoice = async (choice) => {
+        if (!currentChatId || !pendingGate) return;
+        const gate = pendingGate;
+        setPendingGate(null);
+        setIsStreaming(true);
+        updateLastAssistant((msg) => ({ ...msg, isGate: false, gate: null }));
+
+        try {
+          await resolveGate(currentChatId, gate.gateId, choice);
+          await drainChat(currentChatId, handleStreamEvent);
+        } catch (e) {
+          setError(e.message);
+          setIsStreaming(false);
+        }
+      };
+
+      return (
+        <div className="flex h-screen">
+          <Sidebar
+            chats={chats}
+            currentChatId={currentChatId}
+            onSelect={selectChat}
+            onCreate={createChat}
+            onDelete={deleteChat}
+            onRename={renameChat}
+          />
+          <div className="flex-1 flex flex-col h-full bg-gray-900">
+            {error && (
+              <div className="bg-red-900/50 text-red-100 px-4 py-2 text-sm border-b border-red-800">
+                Error: {error}
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto">
+              {messages.length === 0 && !currentChatId && (
+                <div className="h-full flex items-center justify-center text-gray-500">
+                  Select or create a chat to start.
+                </div>
+              )}
+              {messages.map((msg, i) => (
+                <Message
+                  key={i}
+                  role={msg.role}
+                  content={msg.content}
+                  isGate={msg.isGate}
+                  gate={msg.gate}
+                  onChoice={handleChoice}
+                />
+              ))}
+              {isStreaming && (
+                <div className="py-4 px-6 bg-gray-800">
+                  <div className="max-w-3xl mx-auto flex gap-4">
+                    <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-xs font-bold">H</div>
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold text-gray-300">Hermes</div>
+                      <div className="text-gray-400 italic">Thinking…</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+            <div className="border-t border-gray-800 p-4">
+              <form onSubmit={sendMessage} className="max-w-3xl mx-auto relative">
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={currentChatId ? "Message Hermes…" : "Select a chat first"}
+                  disabled={!currentChatId || isStreaming || pendingGate}
+                  className="w-full bg-gray-800 text-white rounded-lg pl-4 pr-12 py-3 border border-gray-700 focus:border-indigo-500 outline-none disabled:opacity-50"
+                />
+                <button
+                  type="submit"
+                  disabled={!input.trim() || !currentChatId || isStreaming || pendingGate}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-indigo-400 hover:text-indigo-300 disabled:text-gray-600 font-medium px-3 py-1"
+                >
+                  Send
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
