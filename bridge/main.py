@@ -51,6 +51,8 @@ async def healthz() -> dict:
 
 @app.post("/v1/chat")
 async def chat(request: ChatRequest) -> StreamingResponse:
+    if not request.chat_id.strip():
+        raise HTTPException(status_code=400, detail="chat_id is required")
     loop = asyncio.get_event_loop()
     hermes_session_id, _created = store.get_or_create_hermes_session_id(request.chat_id)
     session = sessions.get_or_start(request.chat_id, hermes_session_id, loop)
@@ -70,11 +72,11 @@ async def chat(request: ChatRequest) -> StreamingResponse:
                     f"{pending_gate.options} or call /v1/gate/resolve."
                 ),
             )
-        session.resolve_gate(pending_gate.gate_id, matched)
+        await loop.run_in_executor(None, session.resolve_gate, pending_gate.gate_id, matched)
         return StreamingResponse(_sse_stream(session), media_type="text/event-stream")
 
     try:
-        session.send_text(request.message)
+        await loop.run_in_executor(None, session.send_text, request.message)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -101,12 +103,19 @@ async def _sse_stream(session) -> AsyncGenerator[bytes, None]:
 
 @app.post("/v1/gate/resolve")
 async def resolve_gate(request: GateResolveRequest) -> dict:
+    if not request.chat_id.strip():
+        raise HTTPException(status_code=400, detail="chat_id is required")
+    if not request.gate_id.strip():
+        raise HTTPException(status_code=400, detail="gate_id is required")
+    if not request.choice.strip():
+        raise HTTPException(status_code=400, detail="choice is required")
+    loop = asyncio.get_event_loop()
     session = sessions.get(request.chat_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"No active session for chat {request.chat_id}")
 
     try:
-        session.resolve_gate(request.gate_id, request.choice)
+        await loop.run_in_executor(None, session.resolve_gate, request.gate_id, request.choice)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -123,6 +132,8 @@ async def drain(request: ChatRequest) -> StreamingResponse:
     ignored) immediately after a successful /v1/gate/resolve to continue
     rendering tokens without sending a new user message.
     """
+    if not request.chat_id.strip():
+        raise HTTPException(status_code=400, detail="chat_id is required")
     session = sessions.get(request.chat_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"No active session for chat {request.chat_id}")

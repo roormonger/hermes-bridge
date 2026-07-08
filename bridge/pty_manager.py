@@ -113,12 +113,24 @@ class GateDetector:
             return "confirm", m.group("prompt").strip(), ["Yes", "No"]
 
         # --- Select-style: header line + cursor-marked option lines --------
-        lines = [l for l in stripped.splitlines() if l.strip()]
-        if len(lines) >= 2:
-            header_match = self.SELECT_HEADER_RE.match(lines[0].strip())
-            option_lines = lines[1:]
-            has_cursor = any(CURSOR_MARKER_RE.match(l.strip()) for l in option_lines)
-            if header_match and has_cursor:
+        # Scan from the end of the buffer backwards to find the last "? ..." header
+        # followed by option lines with a cursor marker. This tolerates leading
+        # log/output noise above the prompt.
+        lines = [l for l in stripped.splitlines()]
+        for idx in range(len(lines) - 1, -1, -1):
+            line = lines[idx].strip()
+            header_match = self.SELECT_HEADER_RE.match(line)
+            if not header_match:
+                continue
+            # Collect following non-empty lines as option candidates.
+            option_lines = []
+            for j in range(idx + 1, len(lines)):
+                opt_line = lines[j].strip()
+                if not opt_line:
+                    break
+                option_lines.append(opt_line)
+            has_cursor = any(CURSOR_MARKER_RE.match(l) for l in option_lines)
+            if has_cursor:
                 options = [
                     CURSOR_MARKER_RE.sub("", l, count=1).strip()
                     for l in option_lines
@@ -179,14 +191,22 @@ class HermesPtySession:
         master_fd, slave_fd = pty.openpty()
         args = [self.hermes_bin, "chat", "-r", self.hermes_session_id]
 
-        self.proc = subprocess.Popen(
-            args,
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=slave_fd,
-            preexec_fn=os.setsid,
-            close_fds=True,
-        )
+        try:
+            self.proc = subprocess.Popen(
+                args,
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                preexec_fn=os.setsid,
+                close_fds=True,
+            )
+        except FileNotFoundError as exc:
+            os.close(slave_fd)
+            os.close(master_fd)
+            raise RuntimeError(
+                f"Hermes binary not found: {self.hermes_bin!r}. "
+                "Install Hermes or set the HERMES_BIN environment variable."
+            ) from exc
         os.close(slave_fd)
         self.master_fd = master_fd
         self._stop_event.clear()
@@ -319,7 +339,7 @@ class HermesPtySession:
     def send_text(self, text: str) -> None:
         """Write a raw user chat message into the subprocess stdin."""
         self.last_active = time.monotonic()
-        if self.master_fd is None:
+        if self.master_fd is None or not self.is_running():
             raise RuntimeError("Session is not running")
         os.write(self.master_fd, (text + "\n").encode("utf-8"))
 
