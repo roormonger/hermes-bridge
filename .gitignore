@@ -9,3 +9,5 @@ bridge/hermes_bridge.db
 .env
 run/
 config.yaml
+hermes-install/
+hermes install/

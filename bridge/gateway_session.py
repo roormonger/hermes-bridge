@@ -305,6 +305,20 @@ class GatewaySession:
             self._call("prompt.submit", {"session_id": sid, "text": text})
 
     # ------------------------------------------------------------------
+    def attach_image_bytes(self, content_base64: str, filename: str = "") -> dict:
+        """Attach an image to the session from base64 data (before prompt.submit)."""
+        self.last_active = time.monotonic()
+        sid = self.ensure_session()
+        result = self._call("image.attach_bytes", {
+            "session_id": sid,
+            "content_base64": content_base64,
+            "filename": filename,
+        })
+        if isinstance(result, dict) and "error" in result:
+            raise RuntimeError(result["error"].get("message", "image.attach_bytes failed"))
+        return (result.get("result") or {})
+
+    # ------------------------------------------------------------------
     def get_pending_gate(self) -> Optional[dict]:
         with self._lock:
             return self._pending_gate

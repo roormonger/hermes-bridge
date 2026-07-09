@@ -124,6 +124,12 @@ class GateChoiceRequest(BaseModel):
     choice: str
 
 
+class ImageAttachRequest(BaseModel):
+    chat_id: str
+    content_base64: str
+    filename: str = ""
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -212,6 +218,27 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
     if _BACKEND == "gateway":
         return await _chat_gateway(request, loop)
     return await _chat_pty(request, loop)
+
+
+@app.post("/v1/image/attach")
+async def image_attach(request: ImageAttachRequest, current_user: dict = Depends(get_current_user)) -> dict:
+    if _BACKEND != "gateway":
+        raise HTTPException(status_code=400, detail="Image attachment requires gateway backend")
+    if not request.chat_id.strip():
+        raise HTTPException(status_code=400, detail="chat_id is required")
+    if not request.content_base64.strip():
+        raise HTTPException(status_code=400, detail="content_base64 is required")
+    _verify_chat_access(request.chat_id, current_user)
+    loop = asyncio.get_running_loop()
+    hermes_sid = store.get_hermes_session_id(request.chat_id)
+    gw = sessions.get_or_create(request.chat_id, hermes_sid, loop)  # type: ignore[attr-defined]
+    try:
+        result = await loop.run_in_executor(
+            None, gw.attach_image_bytes, request.content_base64, request.filename
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return result
 
 
 # ---------------------------------------------------------------------------

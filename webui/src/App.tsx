@@ -99,16 +99,20 @@ const getAppendText = (msg: AppendMessage): string => {
     .filter((p) => p.type === "text")
     .map((p) => p.text)
     .join("");
-  const attachmentParts = (parts as any[])
-    .filter((p) => p.type === "image" || p.type === "document")
-    .map((p) => {
-      if (p.type === "image") return `[Image attachment: ${p.image?.slice(0, 60)}...]`;
-      if (p.type === "document") return `[File attachment]\n${p.text ?? ""}`;
-      return "";
-    })
+  // Text/document files get inlined; images are uploaded separately via /v1/image/attach
+  const documentParts = (parts as any[])
+    .filter((p) => p.type === "document")
+    .map((p) => `[File: ${p.name ?? "attachment"}]\n${p.text ?? ""}`)
     .filter(Boolean)
     .join("\n");
-  return [textParts, attachmentParts].filter(Boolean).join("\n\n");
+  return [textParts, documentParts].filter(Boolean).join("\n\n");
+};
+
+const getAppendImages = (msg: AppendMessage): Array<{ data: string; name: string }> => {
+  const parts = typeof msg.content === "string" ? [] : (msg.content as any[]);
+  return parts
+    .filter((p) => p.type === "image" && p.image)
+    .map((p) => ({ data: p.image as string, name: p.name ?? "image" }));
 };
 
 // ---------------------------------------------------------------------------
@@ -762,7 +766,8 @@ function ChatApp() {
     onNew: async (message: AppendMessage) => {
       if (isRunning) return;
       const text = getAppendText(message);
-      if (!text.trim()) return;
+      const images = getAppendImages(message);
+      if (!text.trim() && images.length === 0) return;
 
       let chatId = currentChatIdRef.current;
       if (!chatId) {
@@ -773,6 +778,24 @@ function ChatApp() {
         setChats((prev) => [data, ...prev]);
         setCurrentChatId(data.chat_id);
         chatId = data.chat_id;
+      }
+
+      // Upload images to the gateway before prompt.submit so they arrive
+      // as native multimodal content parts rather than text workarounds.
+      for (const img of images) {
+        try {
+          await apiFetch("/v1/image/attach", {
+            method: "POST",
+            body: JSON.stringify({
+              chat_id: chatId,
+              content_base64: img.data,
+              filename: img.name,
+            }),
+          });
+        } catch (e) {
+          setError(`Failed to attach image: ${(e as Error).message}`);
+          return;
+        }
       }
 
       await createBackendMessage(chatId, "user", text);
