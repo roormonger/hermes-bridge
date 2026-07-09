@@ -1,8 +1,8 @@
-"""Hermes plugin entry point for hermes-bridge.
+"""Hermes plugin entry point for hermes-chat.
 
 This file is loaded by Hermes when the plugin is discovered. It registers:
-  - A CLI command tree under `hermes hermes-bridge ...`
-  - Tools that let Hermes inspect/configure the running bridge
+  - A CLI command tree under `hermes hermes-chat ...`
+  - Tools that let Hermes inspect/configure the running daemon
 """
 
 from __future__ import annotations
@@ -25,12 +25,12 @@ from bridge.dependencies import check_dependencies, install_dependencies
 
 def _setup_argparse(subparser):
     subs = subparser.add_subparsers(dest="hermes_bridge_command")
-    subs.add_parser("start", help="Start the hermes-bridge daemon")
-    subs.add_parser("stop", help="Stop the hermes-bridge daemon")
-    subs.add_parser("restart", help="Restart the hermes-bridge daemon")
-    subs.add_parser("status", help="Show bridge daemon status")
-    subs.add_parser("install-deps", help="Install missing bridge Python dependencies")
-    logs_parser = subs.add_parser("logs", help="Show recent bridge logs")
+    subs.add_parser("start", help="Start the Hermes Chat daemon")
+    subs.add_parser("stop", help="Stop the Hermes Chat daemon")
+    subs.add_parser("restart", help="Restart the Hermes Chat daemon")
+    subs.add_parser("status", help="Show Hermes Chat daemon status")
+    subs.add_parser("install-deps", help="Install missing Hermes Chat Python dependencies")
+    logs_parser = subs.add_parser("logs", help="Show recent Hermes Chat logs")
     logs_parser.add_argument("--tail", type=int, default=50, help="Number of log lines")
 
     test_parser = subs.add_parser("test-gates", help="Run gate-detection dev tests")
@@ -70,7 +70,7 @@ def _setup_argparse(subparser):
 def _handle_cli(args) -> None:
     cmd = getattr(args, "hermes_bridge_command", None)
     if cmd is None:
-        print("Usage: hermes hermes-bridge {start|stop|restart|status|logs|configure|test-gates}")
+        print("Usage: hermes hermes-chat {start|stop|restart|status|logs|configure|test-gates}")
         return
 
     if cmd == "start":
@@ -149,8 +149,8 @@ def register(ctx) -> None:
 def _do_register(ctx) -> None:
     """Actual registration logic."""
     ctx.register_cli_command(
-        name="hermes-bridge",
-        help="Manage the hermes-bridge Open WebUI bridge daemon",
+        name="hermes-chat",
+        help="Manage the Hermes Chat daemon",
         setup_fn=_setup_argparse,
         handler_fn=_handle_cli,
     )
@@ -160,7 +160,7 @@ def _do_register(ctx) -> None:
         toolset="hermes_bridge",
         schema=_schema(
             "hermes_bridge_configure",
-            "Change hermes-bridge runtime configuration. Only bridge-side settings can be changed; Open WebUI settings must be edited in Open WebUI.",
+            "Change Hermes Chat runtime configuration. Only server-side settings can be changed; Open WebUI settings must be edited in Open WebUI.",
             {
                 "port": {"type": "integer", "description": "HTTP port for the bridge server"},
                 "host": {"type": "string", "description": "HTTP host for the bridge server"},
@@ -180,7 +180,7 @@ def _do_register(ctx) -> None:
         toolset="hermes_bridge",
         schema=_schema(
             "hermes_bridge_status",
-            "Check whether the hermes-bridge daemon is running and healthy.",
+            "Check whether the Hermes Chat daemon is running and healthy.",
             {},
         ),
         handler=_tool_status,
@@ -191,7 +191,7 @@ def _do_register(ctx) -> None:
         toolset="hermes_bridge",
         schema=_schema(
             "hermes_bridge_restart",
-            "Restart the hermes-bridge daemon to pick up configuration changes.",
+            "Restart the Hermes Chat daemon to pick up configuration changes.",
             {},
         ),
         handler=_tool_restart,
@@ -202,7 +202,7 @@ def _do_register(ctx) -> None:
         toolset="hermes_bridge",
         schema=_schema(
             "hermes_bridge_install_dependencies",
-            "Install the Python packages required by hermes-bridge into the Hermes environment if any are missing.",
+            "Install the Python packages required by Hermes Chat into the Hermes environment if any are missing.",
             {},
         ),
         handler=_tool_install_dependencies,
@@ -233,8 +233,8 @@ def _do_register(ctx) -> None:
     missing = check_dependencies()
     if missing:
         print(
-            "[hermes-bridge] Missing dependencies: "
-            f"{', '.join(missing)}. Run `hermes hermes-bridge install-deps` to install them."
+            "[hermes-chat] Missing dependencies: "
+            f"{', '.join(missing)}. Run `hermes hermes-chat install-deps` to install them."
         )
 
     # Auto-start on plugin load if configured. This is best-effort; Hermes
@@ -286,7 +286,7 @@ def _user_store() -> Any:
     except ImportError as exc:
         raise RuntimeError(
             "Auth dependencies (bcrypt/pyjwt) are not installed. "
-            "Run `hermes hermes-bridge install-deps` and try again."
+            "Run `hermes hermes-chat install-deps` and try again."
         ) from exc
 
     return UserStore(secret=auth_secret())
@@ -333,7 +333,7 @@ def _start_with_deps() -> dict:
         return {
             "status": "missing_dependencies",
             "missing": missing,
-            "message": "Run `hermes hermes-bridge install-deps` before starting the daemon.",
+            "message": "Run `hermes hermes-chat install-deps` before starting the daemon.",
         }
     return start()
 
@@ -344,6 +344,6 @@ def _restart_with_deps() -> dict:
         return {
             "status": "missing_dependencies",
             "missing": missing,
-            "message": "Run `hermes hermes-bridge install-deps` before restarting the daemon.",
+            "message": "Run `hermes hermes-chat install-deps` before restarting the daemon.",
         }
     return restart()

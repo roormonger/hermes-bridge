@@ -1,11 +1,11 @@
 {
-  "name": "hermes-bridge",
-  "label": "Hermes Bridge",
-  "description": "Control the hermes-bridge daemon, view logs, edit config, and manage chat UI users from the dashboard.",
-  "icon": "Waypoints",
-  "version": "0.1.2",
+  "name": "hermes-chat",
+  "label": "Hermes Chat",
+  "description": "Control the Hermes Chat daemon, view logs, edit config, and manage chat users from the dashboard.",
+  "icon": "MessageSquare",
+  "version": "0.2.0",
   "tab": {
-    "path": "/hermes-bridge",
+    "path": "/hermes-chat",
     "position": "end"
   },
   "entry": "dist/index.js",

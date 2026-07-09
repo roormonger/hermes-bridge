@@ -10,13 +10,13 @@
   const h = React ? React.createElement : function () { return null; };
 
   if (!React || !Card || !Button) {
-    window.__HERMES_PLUGINS__.register("hermes-bridge", function () {
-      return h("div", { className: "p-4" }, "Hermes Bridge dashboard could not load: SDK components are missing.");
+    window.__HERMES_PLUGINS__.register("hermes-chat", function () {
+      return h("div", { className: "p-4" }, "Hermes Chat dashboard could not load: SDK components are missing.");
     });
     return;
   }
 
-  const API_PREFIX = "/api/plugins/hermes-bridge";
+  const API_PREFIX = "/api/plugins/hermes-chat";
 
   async function fetchJSON(path, opts) {
     const url = API_PREFIX + path;
@@ -158,8 +158,8 @@
     return h("div", { className: "space-y-4 p-4 max-w-5xl mx-auto" },
       h("div", { className: "flex items-center justify-between" },
         h("div", null,
-          h("h2", { className: "text-2xl font-bold tracking-tight" }, "Hermes Bridge"),
-          h("p", { className: "text-muted-foreground" }, "Control the Open WebUI bridge daemon.")
+          h("h2", { className: "text-2xl font-bold tracking-tight" }, "Hermes Chat"),
+          h("p", { className: "text-muted-foreground" }, "Control the Hermes Chat daemon.")
         ),
         h(StatusPill, { running: status?.running || false, healthy: status?.healthy || false })
       ),
@@ -199,7 +199,7 @@
       h(Card, null,
         h(CardHeader, null,
           h(CardTitle, null, "Controls"),
-          h("p", { className: "text-sm text-muted-foreground" }, "Start, stop, or restart the bridge daemon.")
+          h("p", { className: "text-sm text-muted-foreground" }, "Start, stop, or restart the Hermes Chat daemon.")
         ),
         h(CardContent, null,
           h("div", { className: "flex flex-wrap gap-2" },
@@ -268,7 +268,7 @@
           h("p", { className: "text-sm text-muted-foreground" },
             logsPaused
               ? "⏸ Log updates paused — scroll freely or copy."
-              : "Last 100 lines from the bridge daemon log. Auto-scrolls to bottom."
+              : "Last 100 lines from the Hermes Chat daemon log. Auto-scrolls to bottom."
           )
         ),
         h(CardContent, null,
@@ -283,5 +283,5 @@
     );
   }
 
-  window.__HERMES_PLUGINS__.register("hermes-bridge", BridgeDashboard);
+  window.__HERMES_PLUGINS__.register("hermes-chat", BridgeDashboard);
 })();

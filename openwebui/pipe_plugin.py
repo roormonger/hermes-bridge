@@ -1,8 +1,8 @@
 """
-title: Hermes Bridge
-author: hermes-bridge
-version: 0.1.1
-description: Routes chat turns through hermes-bridge, translating Hermes'
+title: Hermes Chat
+author: hermes-chat
+version: 0.2.0
+description: Routes chat turns through Hermes Chat, translating Hermes'
     interactive TUI decision gates (questionary confirm/select prompts)
     into clickable buttons inside the chat message.
 requirements: requests
@@ -21,7 +21,7 @@ class Pipe:
     class Valves(BaseModel):
         BRIDGE_URL: str = Field(
             default="http://localhost:6969",
-            description="Base URL of the hermes-bridge FastAPI service.",
+            description="Base URL of the Hermes Chat FastAPI service.",
         )
         REQUEST_TIMEOUT: int = Field(
             default=600,
@@ -32,7 +32,7 @@ class Pipe:
             description=(
                 "Render gate choices as clickable HTML buttons in an embedded iframe. "
                 "Disable this if your Open WebUI version or settings block rich UI embeds."
-            ),
+            ),  
         )
 
     def __init__(self) -> None:
@@ -94,7 +94,7 @@ class Pipe:
             )
             response.raise_for_status()
         except requests.RequestException as exc:
-            yield f"**hermes-bridge error:** {exc}"
+            yield f"**hermes-chat error:** {exc}"
             return
 
         for raw_line in response.iter_lines(decode_unicode=True):

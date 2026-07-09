@@ -1,7 +1,7 @@
-"""Dashboard backend API for hermes-bridge.
+"""Dashboard backend API for Hermes Chat.
 
-Mounted by Hermes under ``/api/plugins/hermes-bridge/``. All routes here run
-inside the Hermes dashboard server process and manipulate the bridge daemon via
+Mounted by Hermes under ``/api/plugins/hermes-chat/``. All routes here run
+inside the Hermes dashboard server process and manipulate the Hermes Chat daemon via
 ``bridge.daemon``.
 """
 

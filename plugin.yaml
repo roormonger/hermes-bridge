@@ -1,9 +1,8 @@
-name: hermes-bridge
-version: 0.1.2
+name: hermes-chat
+version: 0.2.0
 description: >
-  Runs a FastAPI bridge between Open WebUI and the Hermes CLI.
-  Manages persistent PTY chat sessions, exposes gate interrupts,
-  and lets Hermes configure the bridge via tools.
+  Hermes Chat — a standalone web chat UI and Open WebUI integration for the Hermes Agent.
+  Exposes a FastAPI backend with streaming, tool-step display, and TUI gateway support.
 author: roormonger
 provides_tools:
   - hermes_bridge_configure
