@@ -2,7 +2,7 @@ import { useEffect, useState, createContext, useContext, type ReactNode } from "
 import { apiFetch, setToken, getToken } from "./api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 
@@ -102,41 +102,56 @@ function LoginForm() {
   };
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-center">Hermes Chat</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            {(localError || error) && (
-              <div className="text-sm text-destructive">{localError || error}</div>
-            )}
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : "Login"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+    <div className="flex min-h-screen w-screen items-center justify-center bg-background p-4">
+      <div className="w-full max-w-sm space-y-6">
+        <div className="flex flex-col items-center gap-3">
+          <img
+            src="/static/hermes-logo.png"
+            alt="Hermes"
+            className="size-16 rounded-2xl object-contain shadow-md"
+          />
+          <div className="text-center">
+            <h1 className="text-2xl font-bold tracking-tight">Hermes Chat</h1>
+            <p className="text-sm text-muted-foreground mt-1">Sign in to continue</p>
+          </div>
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <form onSubmit={onSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              {(localError || error) && (
+                <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {localError || error}
+                </div>
+              )}
+              <Button type="submit" className="w-full" disabled={submitting}>
+                {submitting ? <Loader2 className="size-4 animate-spin" /> : "Sign in"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
