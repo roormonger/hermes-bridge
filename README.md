@@ -76,7 +76,7 @@ SSE stream → browser
 ### Install as a Hermes plugin
 
 ```bash
-hermes plugins install https://github.com/roormonger/hermes-bridge.git
+hermes plugins install https://github.com/roormonger/hermes-chat.git
 hermes hermes-chat install-deps
 hermes hermes-chat start
 ```
@@ -112,8 +112,8 @@ Open `http://<host>:6969` in a browser for the standalone chat UI.
 ### Manual / development install
 
 ```bash
-git clone https://github.com/roormonger/hermes-bridge.git
-cd hermes-bridge
+git clone https://github.com/roormonger/hermes-chat.git
+cd hermes-chat
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn bridge.main:app --host 0.0.0.0 --port 6969
@@ -208,7 +208,7 @@ Native Windows is not supported. Use WSL, a Linux VM, or macOS.
 
 ## Contributing
 
-Issues and PRs welcome at [github.com/roormonger/hermes-bridge](https://github.com/roormonger/hermes-bridge).
+Issues and PRs welcome at [github.com/roormonger/hermes-chat](https://github.com/roormonger/hermes-chat).
 
 ## License
 
