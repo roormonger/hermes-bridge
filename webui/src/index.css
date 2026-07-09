@@ -123,3 +123,8 @@
 [data-slot="aui_assistant-message-indicator"] {
   display: none;
 }
+
+.aui-md[data-status="running"]::after,
+.aui-md:empty::after {
+  display: none;
+}
