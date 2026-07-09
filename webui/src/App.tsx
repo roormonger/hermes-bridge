@@ -187,7 +187,11 @@ function ChatSidebar({
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
-  const groups = groupChats(chats);
+  const [search, setSearch] = useState("");
+  const filteredChats = search.trim()
+    ? chats.filter((c) => c.title.toLowerCase().includes(search.toLowerCase()))
+    : chats;
+  const groups = groupChats(filteredChats);
 
   return (
     <div
@@ -237,7 +241,7 @@ function ChatSidebar({
         )}
       </div>
 
-      <div className="p-2 w-full">
+      <div className="p-2 w-full flex flex-col gap-2">
         <Button
           variant="outline"
           className={cn("h-10", collapsed ? "w-10 px-0 justify-center" : "w-full justify-start gap-2")}
@@ -247,11 +251,21 @@ function ChatSidebar({
           <Plus className="size-4" />
           {!collapsed && "New Chat"}
         </Button>
+        {!collapsed && (
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search chats…"
+            className="h-8 text-sm"
+          />
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-4 w-full">
         {groups.length === 0 && !collapsed && (
-          <p className="text-sm text-muted-foreground px-2">No chats yet.</p>
+          <p className="text-sm text-muted-foreground px-2">
+            {search.trim() ? "No matching chats." : "No chats yet."}
+          </p>
         )}
         {groups.map(({ label, items }) => (
           <div key={label} className={cn("space-y-1", collapsed && "space-y-2")}>
@@ -670,10 +684,21 @@ function ChatApp() {
     isRunning,
     convertMessage,
     onNew: async (message: AppendMessage) => {
-      const chatId = currentChatIdRef.current;
-      if (!chatId || isRunning) return;
+      if (isRunning) return;
       const text = getAppendText(message);
       if (!text.trim()) return;
+
+      let chatId = currentChatIdRef.current;
+      if (!chatId) {
+        const data = await apiFetch("/api/chats", {
+          method: "POST",
+          body: JSON.stringify({ title: "New chat" }),
+        });
+        setChats((prev) => [data, ...prev]);
+        setCurrentChatId(data.chat_id);
+        chatId = data.chat_id;
+      }
+
       await createBackendMessage(chatId, "user", text);
       setMessages((prev) => [
         ...prev,

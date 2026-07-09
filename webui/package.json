@@ -11,6 +11,7 @@
   "dependencies": {
     "@assistant-ui/react": "latest",
     "@assistant-ui/react-markdown": "latest",
+    "@assistant-ui/react-syntax-highlighter": "^0.14.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "lucide-react": "^1.21.0",
