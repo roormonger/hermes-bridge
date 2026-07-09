@@ -37,12 +37,22 @@ type Gate = {
   prompt: string;
 };
 
+type ToolStep = {
+  name: string;
+  context?: string;
+  summary?: string;
+  durationS?: number;
+  status: "running" | "done";
+};
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   status?: "running" | "complete";
   gate?: Gate | null;
+  toolSteps?: ToolStep[];
+  createdAt?: number;
 };
 
 const generateId = () => {
@@ -63,7 +73,13 @@ const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
         ? { type: "running" }
         : { type: "complete", reason: "stop" }
       : undefined,
-  metadata: msg.gate ? { custom: { gate: msg.gate } } : undefined,
+  metadata: {
+    custom: {
+      ...(msg.gate ? { gate: msg.gate } : {}),
+      toolSteps: msg.toolSteps ?? [],
+      createdAt: msg.createdAt ?? Date.now(),
+    },
+  },
 });
 
 const convertMessage = (msg: ThreadMessageLike): ThreadMessageLike => {
@@ -497,22 +513,36 @@ function ChatApp() {
           )
         );
       } else if (event.type === "tool_start") {
-        const toolLine = `\n\n⚙️ *${event.name || "tool"}*${event.context ? `: ${event.context}` : ""}…`;
-        assistantContentRef.current += toolLine;
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, content: assistantContentRef.current } : m
+            m.id === assistantId
+              ? {
+                  ...m,
+                  toolSteps: [
+                    ...(m.toolSteps ?? []),
+                    { name: event.name, context: event.context, status: "running" as const },
+                  ],
+                }
+              : m
           )
         );
       } else if (event.type === "tool_complete") {
-        if (event.summary) {
-          assistantContentRef.current += ` ✓ ${event.summary}`;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, content: assistantContentRef.current } : m
-            )
-          );
-        }
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== assistantId) return m;
+            const steps = [...(m.toolSteps ?? [])];
+            const idx = steps.map((s) => s.name).lastIndexOf(event.name);
+            if (idx !== -1) {
+              steps[idx] = {
+                ...steps[idx],
+                summary: event.summary,
+                durationS: event.duration_s,
+                status: "done" as const,
+              };
+            }
+            return { ...m, toolSteps: steps };
+          })
+        );
       } else if (event.type === "gate_interrupt") {
         const gate: Gate = {
           gateId: event.gate_id,
@@ -574,7 +604,7 @@ function ChatApp() {
     assistantIdRef.current = assistantId;
     setMessages((prev) => [
       ...prev,
-      { id: assistantId, role: "assistant", content: "", status: "running" },
+      { id: assistantId, role: "assistant", content: "", status: "running", toolSteps: [], createdAt: Date.now() },
     ]);
 
     try {

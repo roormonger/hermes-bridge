@@ -25,6 +25,7 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
@@ -34,8 +35,9 @@ import {
   PencilIcon,
   RefreshCwIcon,
   SquareIcon,
+  WrenchIcon,
 } from "lucide-react";
-import type { FC } from "react";
+import { type FC, useState } from "react";
 
 // Startup exposes a loading placeholder thread; treat it as a new chat so
 // the composer mounts centered. Loads after startup keep the docked layout.
@@ -262,9 +264,85 @@ const MessageError: FC = () => {
   );
 };
 
+const HERMES_LOGO = "/static/hermes-logo.png";
+
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+type ToolStep = {
+  name: string;
+  context?: string;
+  summary?: string;
+  durationS?: number;
+  status: "running" | "done";
+};
+
+const ToolStepsPill: FC<{ steps: ToolStep[]; isRunning: boolean }> = ({ steps, isRunning }) => {
+  const [open, setOpen] = useState(false);
+  if (steps.length === 0 && !isRunning) return null;
+
+  const doneCount = steps.filter((s) => s.status === "done").length;
+  const label = isRunning && steps.length === 0
+    ? "Thinking…"
+    : isRunning
+    ? `${doneCount} of ${steps.length} steps…`
+    : `${steps.length} step${steps.length !== 1 ? "s" : ""}`;
+
+  return (
+    <div className="mb-2">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <WrenchIcon className="size-3" />
+        <span>{label}</span>
+        <ChevronDownIcon className={cn("size-3 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="mt-1.5 rounded-lg border border-border/40 bg-muted/30 divide-y divide-border/30 overflow-hidden text-xs">
+          {steps.length === 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground">
+              <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+              Working…
+            </div>
+          )}
+          {steps.map((step, i) => (
+            <div key={i} className="flex items-start gap-2 px-3 py-2">
+              <div className="mt-0.5 shrink-0">
+                {step.status === "running" ? (
+                  <span className="size-1.5 rounded-full bg-amber-400 animate-pulse inline-block" />
+                ) : (
+                  <span className="size-1.5 rounded-full bg-emerald-500 inline-block" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="font-medium text-foreground/80">{step.name}</span>
+                {step.context && (
+                  <span className="text-muted-foreground"> · {step.context}</span>
+                )}
+                {step.summary && (
+                  <div className="text-muted-foreground mt-0.5 truncate">{step.summary}</div>
+                )}
+              </div>
+              {step.durationS != null && (
+                <span className="shrink-0 text-muted-foreground/70">{step.durationS.toFixed(1)}s</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AssistantMessage: FC = () => {
   const ACTION_BAR_PT = "pt-1.5";
   const ACTION_BAR_HEIGHT = `-mb-7.5 min-h-7.5 ${ACTION_BAR_PT}`;
+  const meta = useAuiState((s) => (s.message.metadata as any)?.custom ?? {});
+  const isRunning = useAuiState((s) => s.message.status?.type === "running");
+  const toolSteps: ToolStep[] = meta.toolSteps ?? [];
+  const createdAt: number = meta.createdAt ?? Date.now();
 
   return (
     <MessagePrimitive.Root
@@ -272,11 +350,28 @@ const AssistantMessage: FC = () => {
       data-role="assistant"
       className="fade-in slide-in-from-bottom-1 animate-in relative duration-150"
     >
+      {/* Agent header: avatar + name + timestamp */}
+      <div className="flex items-center gap-2 mb-2 px-1">
+        <div className="size-7 shrink-0 rounded-full overflow-hidden bg-muted border border-border/40 flex items-center justify-center">
+          <img
+            src={HERMES_LOGO}
+            alt="Hermes"
+            className="size-full object-cover"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = "none";
+              e.currentTarget.parentElement!.innerHTML = '<span class="text-xs font-bold text-primary">H</span>';
+            }}
+          />
+        </div>
+        <span className="text-sm font-semibold text-foreground/90">Hermes</span>
+        <span className="text-xs text-muted-foreground/60">{formatTime(createdAt)}</span>
+      </div>
+
       <div
         data-slot="aui_assistant-message-content"
-        // [contain-intrinsic-size:auto_24px] fixes issue #4104, don't change without checking for regressions
         className="text-foreground px-2 leading-relaxed wrap-break-word [contain-intrinsic-size:auto_24px] [content-visibility:auto]"
       >
+        <ToolStepsPill steps={toolSteps} isRunning={isRunning} />
         <MessagePrimitive.Parts>
           {({ part }) => {
             if (part.type === "text") return <MarkdownText />;
