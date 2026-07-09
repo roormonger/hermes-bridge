@@ -220,6 +220,54 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
     return await _chat_pty(request, loop)
 
 
+@app.get("/v1/file/download")
+async def file_download(
+    path: str,
+    current_user: dict = Depends(get_current_user),
+) -> FileResponse:
+    """Stream an agent-produced file as a download.
+
+    ``path`` must be an absolute path that lives under HERMES_HOME
+    (``~/.hermes``) or under the current working directory / workspace.
+    Symlinks are resolved before the check so traversal tricks don't work.
+    """
+    import mimetypes
+    import os
+
+    hermes_home = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser().resolve()
+    try:
+        target = Path(path).expanduser().resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    # Must be under HERMES_HOME or cwd
+    allowed_roots = [hermes_home, Path.cwd().resolve()]
+    if not any(target == r or r in target.parents for r in allowed_roots):
+        raise HTTPException(status_code=403, detail="Path is outside allowed directories")
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    if not target.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+
+    # Block credential files
+    blocked_names = {".env", ".envrc", "auth.json", "auth.lock", ".auth_secret"}
+    if target.name.lower() in blocked_names:
+        raise HTTPException(status_code=403, detail="Access to this file is not allowed")
+
+    size = target.stat().st_size
+    if size > 100 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large to download")
+
+    mime_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    return FileResponse(
+        path=str(target),
+        filename=target.name,
+        media_type=mime_type,
+        headers={"Content-Disposition": f'attachment; filename="{target.name}"'},
+    )
+
+
 @app.post("/v1/image/attach")
 async def image_attach(request: ImageAttachRequest, current_user: dict = Depends(get_current_user)) -> dict:
     if _BACKEND != "gateway":

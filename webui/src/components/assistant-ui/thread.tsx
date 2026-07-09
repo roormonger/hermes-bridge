@@ -37,10 +37,71 @@ import {
   SquareIcon,
   WrenchIcon,
 } from "lucide-react";
-import { type FC, useState } from "react";
+import { type FC, useState, useCallback } from "react";
+import { getToken } from "../../api";
 
-// Startup exposes a loading placeholder thread; treat it as a new chat so
-// the composer mounts centered. Loads after startup keep the docked layout.
+// ---------------------------------------------------------------------------
+// File path detection & download
+// ---------------------------------------------------------------------------
+
+const FILE_PATH_RE = /(?:^|[\s("'])(\/(?:[^\s"'\\<>\x00-\x1f]+\/)+[^\s"'\\<>\x00-\x1f]+\.[a-zA-Z0-9]{1,10})(?=[\s"'\\).,!?]|$)/gm;
+
+function extractFilePaths(text: string): string[] {
+  const found = new Set<string>();
+  let m: RegExpExecArray | null;
+  FILE_PATH_RE.lastIndex = 0;
+  while ((m = FILE_PATH_RE.exec(text)) !== null) {
+    found.add(m[1]);
+  }
+  return Array.from(found);
+}
+
+const FileDownloadLinks: FC<{ text: string }> = ({ text }) => {
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const paths = extractFilePaths(text);
+  if (paths.length === 0) return null;
+
+  const download = useCallback(async (path: string) => {
+    setDownloading(path);
+    try {
+      const token = getToken();
+      const url = `/v1/file/download?path=${encodeURIComponent(path)}`;
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const msg = await res.text();
+        alert(`Download failed: ${msg || res.statusText}`);
+        return;
+      }
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = path.split("/").pop() ?? "file";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } finally {
+      setDownloading(null);
+    }
+  }, []);
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {paths.map((p) => (
+        <button
+          key={p}
+          onClick={() => download(p)}
+          disabled={downloading === p}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+        >
+          <DownloadIcon className="size-3 shrink-0" />
+          <span className="max-w-[24rem] truncate font-mono">{p.split("/").pop()}</span>
+        </button>
+      ))}
+    </div>
+  );
+};
+
 const isNewChatView = (s: AssistantState) =>
   s.thread.messages.length === 0 &&
   (!s.thread.isLoading || s.threads.isLoading);
@@ -378,7 +439,14 @@ const AssistantMessage: FC = () => {
         <ToolStepsPill steps={toolSteps} isRunning={isRunning} />
         <MessagePrimitive.Parts>
           {({ part }) => {
-            if (part.type === "text") return <MarkdownText />;
+            if (part.type === "text") return (
+              <>
+                <MarkdownText />
+                <AuiIf condition={(s) => s.message.status?.type !== "running"}>
+                  <FileDownloadLinks text={(part as any).text ?? ""} />
+                </AuiIf>
+              </>
+            );
             return null;
           }}
         </MessagePrimitive.Parts>
