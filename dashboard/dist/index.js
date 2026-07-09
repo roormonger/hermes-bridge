@@ -51,6 +51,9 @@
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null);
     const [missingDeps, setMissingDeps] = useState([]);
+    const [settingsHost, setSettingsHost] = useState("");
+    const [settingsPort, setSettingsPort] = useState("");
+    const [pendingRestart, setPendingRestart] = useState(false);
     const logsPausedRef = useRef(false);
     const logsBoxRef = useRef(null);
 
@@ -59,6 +62,10 @@
         const data = await fetchJSON("/status");
         setStatus(data);
         setError(null);
+        if (data.config) {
+          setSettingsHost(prev => prev === "" ? (data.config.host || "") : prev);
+          setSettingsPort(prev => prev === "" ? String(data.config.port || "") : prev);
+        }
       } catch (err) {
         setError("Status failed: " + String(err));
       }
@@ -153,6 +160,37 @@
     };
     const onRefreshLogs = () => act(loadLogs(), null);
 
+    const onSaveSettings = async (e) => {
+      e.preventDefault();
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const port = parseInt(settingsPort, 10);
+        if (isNaN(port) || port < 1 || port > 65535) {
+          setError("Port must be a number between 1 and 65535.");
+          return;
+        }
+        await fetchJSON("/config", {
+          method: "POST",
+          body: JSON.stringify({ host: settingsHost.trim(), port }),
+        });
+        setPendingRestart(true);
+        setNotice("Settings saved. Restart the daemon for changes to take effect.");
+        await loadStatus();
+      } catch (err) {
+        setError("Save settings failed: " + String(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const onRestartAfterSettings = async () => {
+      await act(fetchJSON("/restart", { method: "POST" }), loadStatus);
+      setPendingRestart(false);
+      setNotice("Daemon restarted with new settings.");
+    };
+
     const onCreateUser = async (e) => {
       e.preventDefault();
       await act(
@@ -188,6 +226,10 @@
       notice && h("div", { className: "rounded-md border border-green-400 bg-green-50 dark:bg-green-950 dark:border-green-700 p-3 text-sm flex items-center justify-between gap-3" },
         h("span", { className: "text-green-800 dark:text-green-200" }, "✓ " + notice),
         h("button", { onClick: () => setNotice(null), className: "text-green-600 dark:text-green-400 hover:opacity-70 text-xs" }, "✕")
+      ),
+      pendingRestart && h("div", { className: "rounded-md border border-orange-400 bg-orange-50 dark:bg-orange-950 dark:border-orange-700 p-3 text-sm flex items-center justify-between gap-3" },
+        h("span", { className: "text-orange-800 dark:text-orange-200" }, "⚠ Restart required for network settings to take effect."),
+        h(Button, { onClick: onRestartAfterSettings, disabled: loading, size: "sm" }, loading ? "Restarting..." : "Restart Now")
       ),
       error && h("div", { className: "rounded-md bg-destructive/15 p-3 text-destructive text-sm" }, error),
       h(Card, null,
@@ -238,8 +280,41 @@
       ),
       h(Card, null,
         h(CardHeader, null,
+          h(CardTitle, null, "Network Settings"),
+          h("p", { className: "text-sm text-muted-foreground" }, "Bind address and port. Changes take effect after a daemon restart.")
+        ),
+        h(CardContent, null,
+          h("form", { onSubmit: onSaveSettings, className: "flex flex-col sm:flex-row gap-3 items-end" },
+            h("div", { className: "flex flex-col gap-1 flex-1" },
+              h("label", { className: "text-xs text-muted-foreground font-medium" }, "Bind Address"),
+              h("input", {
+                type: "text",
+                value: settingsHost,
+                onChange: (e) => setSettingsHost(e.target.value),
+                placeholder: "0.0.0.0",
+                className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
+              })
+            ),
+            h("div", { className: "flex flex-col gap-1 w-32" },
+              h("label", { className: "text-xs text-muted-foreground font-medium" }, "Port"),
+              h("input", {
+                type: "number",
+                value: settingsPort,
+                onChange: (e) => setSettingsPort(e.target.value),
+                placeholder: "6969",
+                min: "1",
+                max: "65535",
+                className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
+              })
+            ),
+            h(Button, { type: "submit", disabled: loading }, "Save")
+          )
+        )
+      ),
+      h(Card, null,
+        h(CardHeader, null,
           h(CardTitle, null, "Chat Users"),
-          h("p", { className: "text-sm text-muted-foreground" }, "Add or remove users for the standalone chat UI.")
+          h("p", { className: "text-sm text-muted-foreground" }, "Add or remove users for the standalone chat UI. New users can log in immediately — no restart needed.")
         ),
         h(CardContent, { className: "space-y-4" },
           h("form", { onSubmit: onCreateUser, className: "flex flex-col sm:flex-row gap-2" },

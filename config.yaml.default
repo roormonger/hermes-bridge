@@ -1,0 +1,19 @@
+# Hermes Chat configuration
+# Copied to your plugin directory (~/.hermes/plugins/hermes-chat/config.yaml)
+# on first plugin load. Edit that copy to change settings.
+# Changes to host/port require a daemon restart to take effect.
+
+# Network
+host: 0.0.0.0        # Bind address. 0.0.0.0 = all interfaces, 127.0.0.1 = localhost only
+port: 6969           # HTTP port
+
+# Hermes
+hermes_bin: hermes   # Path to the hermes CLI binary (or just "hermes" if it's on PATH)
+
+# Sessions
+session_idle_timeout: 600   # Seconds of inactivity before a session is reaped
+
+# Daemon
+auto_start: true     # Auto-start the daemon when the Hermes plugin loads
+log_level: INFO      # DEBUG / INFO / WARNING / ERROR
+debug: false         # Verbose gateway/session logging (forces DEBUG)

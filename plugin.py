@@ -8,6 +8,7 @@ This file is loaded by Hermes when the plugin is discovered. It registers:
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -18,9 +19,22 @@ _PLUGIN_ROOT = Path(__file__).resolve().parent
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
-from bridge.config import auth_secret, load_config, update_config
+from bridge.config import auth_secret, config_path, load_config, update_config
 from bridge.daemon import is_running, logs, restart, start, status, stop
 from bridge.dependencies import check_dependencies, install_dependencies
+
+
+def _ensure_config() -> None:
+    """Copy config.yaml.default → config.yaml in the plugin dir if not present."""
+    dest = config_path()
+    if dest.exists():
+        return
+    src = _PLUGIN_ROOT / "config.yaml.default"
+    if not src.exists():
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(src, dest)
+    print(f"[hermes-chat] Created default config at {dest}")
 
 
 def _setup_argparse(subparser):
@@ -148,6 +162,7 @@ def register(ctx) -> None:
 
 def _do_register(ctx) -> None:
     """Actual registration logic."""
+    _ensure_config()
     ctx.register_cli_command(
         name="hermes-chat",
         help="Manage the Hermes Chat daemon",
