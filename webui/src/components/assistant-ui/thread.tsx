@@ -4,10 +4,10 @@ import {
   UserMessageAttachments,
 } from "@/components/assistant-ui/attachment";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
-import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { DotMatrix } from "@/components/dot-matrix";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -264,6 +264,7 @@ const MessageError: FC = () => {
   );
 };
 
+
 const HERMES_LOGO = "/static/hermes-logo.png";
 
 function formatTime(ts: number): string {
@@ -375,8 +376,6 @@ const AssistantMessage: FC = () => {
         <MessagePrimitive.Parts>
           {({ part }) => {
             if (part.type === "text") return <MarkdownText />;
-            if (part.type === "tool-call")
-              return part.toolUI ?? <ToolFallback {...part} />;
             return null;
           }}
         </MessagePrimitive.Parts>
@@ -385,13 +384,7 @@ const AssistantMessage: FC = () => {
             s.message.status?.type === "running" && s.message.parts.length === 0
           }
         >
-          <span
-            data-slot="aui_assistant-message-indicator"
-            className="animate-pulse font-sans"
-            aria-label="Assistant is working"
-          >
-            {"●"}
-          </span>
+          <DotMatrix state="thinking" label="Thinking" className="size-5 my-1" />
         </AuiIf>
         <MessageError />
       </div>
