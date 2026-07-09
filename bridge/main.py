@@ -160,6 +160,17 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict:
     return user
 
 
+def get_current_user_query(token: str | None = None, authorization: str | None = Header(default=None)) -> dict:
+    """Like get_current_user but also accepts ?token= query param (for <img src=> URLs)."""
+    raw = token or _extract_bearer_token(authorization)
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+    user = users.decode_token(raw)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    return user
+
+
 def _verify_chat_access(chat_id: str, current_user: dict) -> dict:
     """Return the chat if the user owns it (or it is unowned), otherwise raise 404."""
     chat = history.get_chat(chat_id, current_user["user_id"])
@@ -266,6 +277,48 @@ async def file_download(
         media_type=mime_type,
         headers={"Content-Disposition": f'attachment; filename="{target.name}"'},
     )
+
+
+_IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"})
+
+
+@app.get("/v1/file/preview")
+async def file_preview(
+    path: str,
+    current_user: dict = Depends(get_current_user_query),
+) -> FileResponse:
+    """Serve an image file for inline display (no Content-Disposition attachment).
+
+    Accepts auth token via ``?token=`` query param so ``<img src=...>`` tags
+    can load it without custom headers.  Restricted to image extensions only.
+    """
+    import mimetypes
+    import os
+
+    hermes_home = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser().resolve()
+    try:
+        target = Path(path).expanduser().resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    allowed_roots = [hermes_home, Path.cwd().resolve()]
+    if not any(target == r or r in target.parents for r in allowed_roots):
+        raise HTTPException(status_code=403, detail="Path is outside allowed directories")
+
+    if target.suffix.lower() not in _IMAGE_EXTENSIONS:
+        raise HTTPException(status_code=403, detail="Only image files can be previewed")
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    if not target.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+
+    size = target.stat().st_size
+    if size > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image too large to preview")
+
+    mime_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    return FileResponse(path=str(target), media_type=mime_type)
 
 
 @app.post("/v1/image/attach")

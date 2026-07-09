@@ -41,10 +41,11 @@ import { type FC, useState, useCallback } from "react";
 import { getToken } from "../../api";
 
 // ---------------------------------------------------------------------------
-// File path detection & download
+// File path detection & download / inline preview
 // ---------------------------------------------------------------------------
 
 const FILE_PATH_RE = /(?:^|[\s("'])(\/(?:[^\s"'\\<>\x00-\x1f]+\/)+[^\s"'\\<>\x00-\x1f]+\.[a-zA-Z0-9]{1,10})(?=[\s"'\\).,!?]|$)/gm;
+const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"]);
 
 function extractFilePaths(text: string): string[] {
   const found = new Set<string>();
@@ -54,6 +55,16 @@ function extractFilePaths(text: string): string[] {
     found.add(m[1]);
   }
   return Array.from(found);
+}
+
+function isImagePath(p: string): boolean {
+  const dot = p.lastIndexOf(".");
+  return dot !== -1 && IMAGE_EXTS.has(p.slice(dot).toLowerCase());
+}
+
+function previewUrl(path: string): string {
+  const token = getToken();
+  return `/v1/file/preview?path=${encodeURIComponent(path)}${token ? `&token=${encodeURIComponent(token)}` : ""}`;
 }
 
 const FileDownloadLinks: FC<{ text: string }> = ({ text }) => {
@@ -85,19 +96,49 @@ const FileDownloadLinks: FC<{ text: string }> = ({ text }) => {
     }
   }, []);
 
+  const images = paths.filter(isImagePath);
+  const others = paths.filter((p) => !isImagePath(p));
+
   return (
-    <div className="mt-3 flex flex-wrap gap-2">
-      {paths.map((p) => (
-        <button
-          key={p}
-          onClick={() => download(p)}
-          disabled={downloading === p}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-        >
-          <DownloadIcon className="size-3 shrink-0" />
-          <span className="max-w-[24rem] truncate font-mono">{p.split("/").pop()}</span>
-        </button>
+    <div className="mt-3 space-y-3">
+      {images.map((p) => (
+        <div key={p} className="overflow-hidden rounded-xl border border-border/40 bg-muted/20">
+          <img
+            src={previewUrl(p)}
+            alt={p.split("/").pop()}
+            className="max-h-96 w-auto max-w-full object-contain"
+            loading="lazy"
+          />
+          <div className="flex items-center justify-between border-t border-border/30 px-3 py-1.5">
+            <span className="max-w-[20rem] truncate font-mono text-xs text-muted-foreground">
+              {p.split("/").pop()}
+            </span>
+            <button
+              onClick={() => download(p)}
+              disabled={downloading === p}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+            >
+              <DownloadIcon className="size-3" />
+              Download
+            </button>
+          </div>
+        </div>
       ))}
+      {others.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {others.map((p) => (
+            <button
+              key={p}
+              onClick={() => download(p)}
+              disabled={downloading === p}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+            >
+              <DownloadIcon className="size-3 shrink-0" />
+              <span className="max-w-[24rem] truncate font-mono">{p.split("/").pop()}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
