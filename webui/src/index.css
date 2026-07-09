@@ -119,3 +119,7 @@
   height: 100vh;
   width: 100vw;
 }
+
+[data-slot="aui_assistant-message-indicator"] {
+  display: none;
+}

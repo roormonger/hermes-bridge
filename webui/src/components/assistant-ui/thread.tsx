@@ -382,12 +382,6 @@ const AssistantMessage: FC = () => {
             return null;
           }}
         </MessagePrimitive.Parts>
-        {/* Only show the ● fallback when running with no tool steps and no text */}
-        {isRunning && toolSteps.length === 0 && (
-          <AuiIf condition={(s) => s.message.parts.length === 0}>
-            <DotMatrix state="thinking" label="Thinking" className="size-5 my-1" />
-          </AuiIf>
-        )}
         <MessageError />
       </div>
 
