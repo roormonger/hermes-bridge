@@ -157,7 +157,7 @@ def _translate_event(frame: dict) -> Optional[dict]:
         }
 
     if etype == "clarify.request":
-        logger.info("clarify.request payload keys=%s payload=%r", list(payload.keys()), payload)
+        logger.debug("clarify.request payload keys=%s payload=%r", list(payload.keys()), payload)
         choices = payload.get("choices") or payload.get("options") or []
         return {
             "type": "gate_interrupt",
