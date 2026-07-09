@@ -119,7 +119,24 @@
     const onStart = () => act(fetchJSON("/start", { method: "POST" }), loadStatus);
     const onStop = () => act(fetchJSON("/stop", { method: "POST" }), loadStatus);
     const onRestart = () => act(fetchJSON("/restart", { method: "POST" }), loadStatus);
-    const onInstallDeps = () => act(fetchJSON("/install-deps", { method: "POST" }), loadStatus);
+    const onInstallDeps = async () => {
+      setLoading(true);
+      try {
+        const result = await fetchJSON("/install-deps", { method: "POST" });
+        if (result.status === "error") {
+          setError("Install failed: " + (result.message || "unknown error"));
+        } else if (result.status === "ok") {
+          setError(null);
+        } else {
+          setError("Install result (" + result.status + "): " + (result.message || ""));
+        }
+        await loadStatus();
+      } catch (err) {
+        setError("Install deps failed: " + String(err));
+      } finally {
+        setLoading(false);
+      }
+    };
     const onRefreshLogs = () => act(loadLogs(), null);
 
     const onCreateUser = async (e) => {
