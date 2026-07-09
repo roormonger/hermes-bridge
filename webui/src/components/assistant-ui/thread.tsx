@@ -296,7 +296,10 @@ const ToolStepsPill: FC<{ steps: ToolStep[]; isRunning: boolean }> = ({ steps, i
         onClick={() => setOpen((v) => !v)}
         className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
-        <WrenchIcon className="size-3" />
+        {isRunning
+          ? <DotMatrix state="thinking" className="size-3.5 -my-0.5" />
+          : <WrenchIcon className="size-3" />
+        }
         <span>{label}</span>
         <ChevronDownIcon className={cn("size-3 transition-transform", open && "rotate-180")} />
       </button>
@@ -379,13 +382,12 @@ const AssistantMessage: FC = () => {
             return null;
           }}
         </MessagePrimitive.Parts>
-        <AuiIf
-          condition={(s) =>
-            s.message.status?.type === "running" && s.message.parts.length === 0
-          }
-        >
-          <DotMatrix state="thinking" label="Thinking" className="size-5 my-1" />
-        </AuiIf>
+        {/* Only show the ● fallback when running with no tool steps and no text */}
+        {isRunning && toolSteps.length === 0 && (
+          <AuiIf condition={(s) => s.message.parts.length === 0}>
+            <DotMatrix state="thinking" label="Thinking" className="size-5 my-1" />
+          </AuiIf>
+        )}
         <MessageError />
       </div>
 
