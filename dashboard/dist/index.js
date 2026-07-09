@@ -393,7 +393,8 @@
         h(CardContent, null,
           h("pre", {
             ref: logsBoxRef,
-            className: "rounded-md bg-muted p-3 text-xs h-96 overflow-auto font-mono whitespace-pre-wrap break-all"
+            className: "rounded-md bg-muted p-3 text-xs overflow-y-scroll font-mono whitespace-pre-wrap break-all",
+            style: { height: "320px", maxHeight: "320px" }
           },
             logs || "No logs yet."
           )
