@@ -157,12 +157,14 @@ def _translate_event(frame: dict) -> Optional[dict]:
         }
 
     if etype == "clarify.request":
+        logger.info("clarify.request payload keys=%s payload=%r", list(payload.keys()), payload)
+        choices = payload.get("choices") or payload.get("options") or []
         return {
             "type": "gate_interrupt",
             "gate_kind": "clarify",
             "gate_id": payload.get("request_id", ""),
             "prompt": payload.get("question", ""),
-            "options": [],
+            "options": choices,
         }
 
     if etype == "sudo.request":
