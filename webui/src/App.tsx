@@ -234,7 +234,17 @@ function ChatSidebar({
             className="size-8 rounded-md object-contain"
           />
         )}
-        {!collapsed ? (
+        {mobileOpen ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0"
+            onClick={onMobileClose}
+            title="Close sidebar"
+          >
+            <X className="size-4" />
+          </Button>
+        ) : !collapsed ? (
           <Button
             variant="ghost"
             size="icon"
