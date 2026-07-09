@@ -37,15 +37,16 @@
 
   async function fetchJSON(path, opts) {
     const url = API_PREFIX + path;
-    if (typeof SDK.fetchJSON === "function") {
-      return SDK.fetchJSON(url, opts);
-    }
     const res = await fetch(url, {
       ...opts,
       headers: { "Content-Type": "application/json", ...(opts && opts.headers) },
       credentials: "same-origin",
     });
-    if (!res.ok) throw new Error("HTTP " + res.status);
+    if (!res.ok) {
+      let detail = "HTTP " + res.status;
+      try { const j = await res.json(); detail = j.detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
     return res.json();
   }
 
