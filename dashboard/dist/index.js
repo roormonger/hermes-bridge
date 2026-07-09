@@ -38,14 +38,19 @@
     return h("span", { className: "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium " + color }, text);
   }
 
+  const { useRef } = hooks;
+
   function BridgeDashboard() {
     const [status, setStatus] = useState(null);
     const [logs, setLogs] = useState("");
+    const [logsPaused, setLogsPaused] = useState(false);
     const [users, setUsers] = useState([]);
     const [newUsername, setNewUsername] = useState("");
     const [newPassword, setNewPassword] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const logsPausedRef = useRef(false);
+    const logsBoxRef = useRef(null);
 
     const loadStatus = useCallback(async () => {
       try {
@@ -60,9 +65,11 @@
     const loadLogs = useCallback(async () => {
       try {
         const data = await fetchJSON("/logs?tail=100");
-        setLogs(data.log);
+        if (!logsPausedRef.current) {
+          setLogs(data.log);
+        }
       } catch (err) {
-        setLogs("Failed to load logs: " + err);
+        if (!logsPausedRef.current) setLogs("Failed to load logs: " + err);
       }
     }, []);
 
@@ -82,6 +89,19 @@
       const id = setInterval(() => { loadStatus(); loadLogs(); }, 5000);
       return () => clearInterval(id);
     }, [loadStatus, loadLogs, loadUsers]);
+
+    useEffect(() => {
+      if (!logsPaused && logsBoxRef.current) {
+        logsBoxRef.current.scrollTop = logsBoxRef.current.scrollHeight;
+      }
+    }, [logs, logsPaused]);
+
+    const toggleLogsPause = () => {
+      const next = !logsPausedRef.current;
+      logsPausedRef.current = next;
+      setLogsPaused(next);
+      if (!next) loadLogs();
+    };
 
     async function act(promise, refresh) {
       setLoading(true);
@@ -217,14 +237,28 @@
       ),
       h(Card, null,
         h(CardHeader, null,
-          h(CardTitle, null, "Daemon Logs"),
           h("div", { className: "flex items-center justify-between" },
-            h("p", { className: "text-sm text-muted-foreground" }, "Last 100 lines from the bridge daemon log."),
-            h(Button, { onClick: onRefreshLogs, disabled: loading }, "Refresh")
+            h(CardTitle, null, "Daemon Logs"),
+            h("div", { className: "flex gap-2" },
+              h(Button, {
+                onClick: toggleLogsPause,
+                variant: logsPaused ? "default" : "outline",
+                size: "sm"
+              }, logsPaused ? "▶ Resume" : "⏸ Pause"),
+              h(Button, { onClick: onRefreshLogs, disabled: loading, size: "sm", variant: "outline" }, "Refresh")
+            )
+          ),
+          h("p", { className: "text-sm text-muted-foreground" },
+            logsPaused
+              ? "⏸ Log updates paused — scroll freely or copy."
+              : "Last 100 lines from the bridge daemon log. Auto-scrolls to bottom."
           )
         ),
         h(CardContent, null,
-          h("pre", { className: "rounded-md bg-muted p-3 text-xs h-96 overflow-auto font-mono" },
+          h("pre", {
+            ref: logsBoxRef,
+            className: "rounded-md bg-muted p-3 text-xs h-96 overflow-auto font-mono whitespace-pre-wrap break-all"
+          },
             logs || "No logs yet."
           )
         )
