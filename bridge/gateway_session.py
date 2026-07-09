@@ -54,13 +54,24 @@ try:
     from tui_gateway import server as _gw_server
     from tui_gateway.transport import bind_transport, Transport
     _GATEWAY_AVAILABLE = True
-except ImportError as _import_err:
+    _import_err_msg = ""
+    logger.info("tui_gateway imported successfully")
+except Exception as _import_err:
     _GATEWAY_AVAILABLE = False
     _import_err_msg = str(_import_err)
+    logger.warning(
+        "tui_gateway not available (%s: %s) — falling back to PTY backend",
+        type(_import_err).__name__,
+        _import_err_msg,
+    )
 
 
 def gateway_available() -> bool:
     return _GATEWAY_AVAILABLE
+
+
+def gateway_available_error() -> str:
+    return _import_err_msg
 
 
 # ---------------------------------------------------------------------------

@@ -41,12 +41,16 @@ logger = logging.getLogger("hermes_bridge")
 # Gateway backend selection: prefer tui_gateway (in-process JSON-RPC) over
 # the legacy PTY path. Both expose the same interface to the REST layer.
 # ---------------------------------------------------------------------------
-from .gateway_session import gateway_available, GatewaySessionManager, _translate_event
+from .gateway_session import gateway_available, gateway_available_error, GatewaySessionManager, _translate_event
 
 if gateway_available():
     logger.info("tui_gateway available — using in-process JSON-RPC backend")
     _BACKEND = "gateway"
 else:
+    logger.warning(
+        "tui_gateway not available (%s) — using legacy PTY backend",
+        gateway_available_error() or "unknown import error",
+    )
     from .pty_manager import SessionManager as _PtySessionManager  # type: ignore
     _BACKEND = "pty"
 
