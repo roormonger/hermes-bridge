@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
 # Make sure the plugin root is importable regardless of how Hermes loads this file.
@@ -23,7 +24,7 @@ if str(_PLUGIN_ROOT) not in sys.path:
 _ERROR_LOG = _PLUGIN_ROOT / "run" / "dashboard-api-error.log"
 
 from bridge.config import auth_secret, load_config, update_config
-from bridge.daemon import is_running, logs, restart, start, status, stop
+from bridge.daemon import LOG_FILE, is_running, logs, restart, start, status, stop
 from bridge.dependencies import check_dependencies, install_dependencies
 
 router = APIRouter()
@@ -105,6 +106,21 @@ async def post_config(body: ConfigUpdate) -> dict:
 async def get_logs(tail: int = 100) -> dict:
     try:
         return {"lines": tail, "log": logs(tail)}
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+@router.get("/logs/download")
+async def download_logs():
+    try:
+        if not LOG_FILE.exists():
+            return PlainTextResponse("No log file found.", status_code=404)
+        return FileResponse(
+            path=str(LOG_FILE),
+            media_type="text/plain",
+            filename="hermes-chat.log",
+            headers={"Content-Disposition": 'attachment; filename="hermes-chat.log"'},
+        )
     except Exception as exc:
         _handle_exc(exc)
 

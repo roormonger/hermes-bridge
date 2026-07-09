@@ -381,7 +381,12 @@
                 variant: logsPaused ? "default" : "outline",
                 size: "sm"
               }, logsPaused ? "▶ Resume" : "⏸ Pause"),
-              h(Button, { onClick: onRefreshLogs, disabled: loading, size: "sm", variant: "outline" }, "Refresh")
+              h(Button, { onClick: onRefreshLogs, disabled: loading, size: "sm", variant: "outline" }, "Refresh"),
+              h("a", {
+                href: API_PREFIX + "/logs/download",
+                download: "hermes-chat.log",
+                className: "inline-flex items-center justify-center rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent hover:text-accent-foreground"
+              }, "Download")
             )
           ),
           h("p", { className: "text-sm text-muted-foreground" },
