@@ -16,7 +16,24 @@
     return;
   }
 
-  const API_PREFIX = "/api/plugins/hermes-chat";
+  // Derive the correct API prefix. Try in order:
+  //  1. SDK.apiPrefix  — Hermes may inject this directly
+  //  2. SDK.pluginName — build prefix from the registered plugin name
+  //  3. URL of a <script> tag whose src contains /plugins/<name>/
+  //  4. Hard-coded fallback (correct after plugin is renamed)
+  function _resolveApiPrefix() {
+    if (SDK.apiPrefix) return SDK.apiPrefix;
+    if (SDK.pluginName) return "/api/plugins/" + SDK.pluginName;
+    try {
+      const scripts = Array.from(document.querySelectorAll("script[src]"));
+      for (const s of scripts) {
+        const m = s.src.match(/\/plugins\/([^/]+)\//);
+        if (m) return "/api/plugins/" + m[1];
+      }
+    } catch (_) {}
+    return "/api/plugins/hermes-chat";
+  }
+  const API_PREFIX = _resolveApiPrefix();
 
   async function fetchJSON(path, opts) {
     const url = API_PREFIX + path;
