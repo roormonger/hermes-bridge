@@ -1,6 +1,6 @@
 # Hermes Chat
 
-A standalone web chat UI and [Open WebUI](https://github.com/open-webui/open-webui) integration for the [Hermes Agent](https://github.com/NousResearch/hermes-agent).
+A standalone web chat UI for the [Hermes Agent](https://github.com/NousResearch/hermes-agent).
 
 Hermes Chat gives you a clean, modern chat interface that talks directly to the Hermes TUI gateway — with streaming responses, live tool-step display, and interactive decision gates (tool-approval, confirm/select dialogs) surfaced as native UI elements.
 
@@ -11,7 +11,6 @@ Hermes Chat gives you a clean, modern chat interface that talks directly to the 
 - [Requirements](#requirements)
 - [Quickstart](#quickstart)
 - [API reference](#api-reference)
-- [Open WebUI plugin setup](#open-webui-plugin-setup)
 - [Configuration reference](#configuration-reference)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
@@ -20,7 +19,7 @@ Hermes Chat gives you a clean, modern chat interface that talks directly to the 
 ## How it works
 
 ```
-Browser / Open WebUI
+Browser
         │
         │  POST /v1/chat {chat_id, message}
         ▼
@@ -60,14 +59,10 @@ SSE stream → browser
 │   └── src/
 │       ├── App.tsx       Chat state, SSE event handling, session management
 │       └── components/   UI components (thread, markdown, tool fallback, …)
-├── dashboard/            Hermes dashboard plugin tab
-│   ├── manifest.json
-│   ├── plugin_api.py     Dashboard API routes (status, logs, users, controls)
-│   └── dist/index.js     Dashboard UI bundle
-└── openwebui/            Open WebUI Pipe + Action plugin sources and JSON exports
-    ├── pipe_plugin.py
-    ├── action_plugin.py
-    └── build_exports.py
+└── dashboard/            Hermes dashboard plugin tab
+    ├── manifest.json
+    ├── plugin_api.py     Dashboard API routes (status, logs, users, controls)
+    └── dist/index.js     Dashboard UI bundle
 ```
 
 ## Requirements
@@ -171,22 +166,6 @@ Resolves a pending gate and resumes the session. The next `POST /v1/chat` will c
 
 Liveness probe; returns `{"status": "ok"}`.
 
-## Open WebUI plugin setup
-
-1. In Open WebUI, go to **Workspace → Functions → Import**.
-2. Import `openwebui/pipe_plugin.json`. Set the `BRIDGE_URL` valve to your Hermes Chat address (default: `http://localhost:6969`). Enable it as a model under **Settings → Models**.
-3. Optionally import `openwebui/action_plugin.json` for one-click gate resolution buttons. Set the same `BRIDGE_URL`. Register it twice with `CHOICE=Yes` and `CHOICE=No` for approve/deny buttons.
-4. Start a chat using the Hermes Chat model.
-
-### Hermes dashboard tab
-
-The plugin adds a **Hermes Chat** tab to the Hermes web dashboard with:
-
-- Live daemon status and health.
-- Start / stop / restart / install-deps controls.
-- User management (add/delete chat UI users).
-- The last 100 lines of the daemon log (with pause/resume).
-
 ## Configuration reference
 
 Settings live in `~/.hermes/plugins/hermes-chat/config.yaml` (or `config.yaml` in the repo root for a manual install):
@@ -212,17 +191,6 @@ Hermes can also configure the daemon via registered tools:
 - `hermes_bridge_status` — check health and config.
 - `hermes_bridge_restart` — restart the daemon.
 - `hermes_bridge_install_dependencies` — install missing Python packages.
-
-Open WebUI valve reference:
-
-| Plugin | Valve | Default | Purpose |
-|---|---|---|---|
-| Pipe | `BRIDGE_URL` | `http://localhost:6969` | Hermes Chat server URL. |
-| Pipe | `REQUEST_TIMEOUT` | `600` | SSE stream timeout in seconds. |
-| Action | `BRIDGE_URL` | `http://localhost:6969` | Hermes Chat server URL. |
-| Action | `CHOICE` | `""` | Fixed gate choice (blank = first option). |
-| Action | `STREAM_TOKENS` | `true` | Stream resumed tokens inline. |
-| Action | `REQUEST_TIMEOUT` | `30` | Resolve/drain call timeout. |
 
 ## Troubleshooting
 
