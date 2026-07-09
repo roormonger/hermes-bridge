@@ -131,28 +131,27 @@ function GateDialog({
         <p className="text-muted-foreground">
           {pendingGate.prompt || "Choose an option:"}
         </p>
-        {isFreeText ? (
-          <form onSubmit={handleFreeTextSubmit} className="flex gap-2">
-            <Input
-              autoFocus
-              value={freeText}
-              onChange={(e) => setFreeText(e.target.value)}
-              placeholder="Type your answer…"
-              className="flex-1"
-            />
-            <Button type="submit" disabled={!freeText.trim()}>
-              Send
-            </Button>
-          </form>
-        ) : (
-          <div className="flex flex-col gap-2">
+        {pendingGate.options.length > 0 && (
+          <div className="flex flex-wrap gap-2">
             {pendingGate.options.map((option) => (
-              <Button key={option} onClick={() => onChoice(option)}>
+              <Button key={option} variant="outline" onClick={() => onChoice(option)}>
                 {option}
               </Button>
             ))}
           </div>
         )}
+        <form onSubmit={handleFreeTextSubmit} className="flex gap-2">
+          <Input
+            autoFocus={isFreeText}
+            value={freeText}
+            onChange={(e) => setFreeText(e.target.value)}
+            placeholder={isFreeText ? "Type your answer…" : "Or type a custom answer…"}
+            className="flex-1"
+          />
+          <Button type="submit" disabled={!freeText.trim()}>
+            Send
+          </Button>
+        </form>
       </DialogContent>
     </Dialog>
   );
