@@ -1,9 +1,16 @@
 name: hermes-chat
 version: 0.2.0
 description: >
-  Hermes Chat — a standalone web chat UI and Open WebUI integration for the Hermes Agent.
+  Hermes Chat — a standalone web chat UI for the Hermes Agent.
   Exposes a FastAPI backend with streaming, tool-step display, and TUI gateway support.
 author: roormonger
+requirements:
+  - fastapi>=0.111
+  - uvicorn[standard]>=0.29
+  - pydantic>=2.6
+  - pyyaml>=6.0
+  - pyjwt>=2.8
+  - bcrypt>=4.1
 provides_tools:
   - hermes_bridge_configure
   - hermes_bridge_status

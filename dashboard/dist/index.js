@@ -49,6 +49,8 @@
     const [newPassword, setNewPassword] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [notice, setNotice] = useState(null);
+    const [missingDeps, setMissingDeps] = useState([]);
     const logsPausedRef = useRef(false);
     const logsBoxRef = useRef(null);
 
@@ -60,6 +62,13 @@
       } catch (err) {
         setError("Status failed: " + String(err));
       }
+    }, []);
+
+    const loadDeps = useCallback(async () => {
+      try {
+        const data = await fetchJSON("/deps");
+        setMissingDeps(data.missing || []);
+      } catch (_) {}
     }, []);
 
     const loadLogs = useCallback(async () => {
@@ -84,11 +93,12 @@
 
     useEffect(() => {
       loadStatus();
+      loadDeps();
       loadLogs();
       loadUsers();
       const id = setInterval(() => { loadStatus(); loadLogs(); }, 5000);
       return () => clearInterval(id);
-    }, [loadStatus, loadLogs, loadUsers]);
+    }, [loadStatus, loadDeps, loadLogs, loadUsers]);
 
     useEffect(() => {
       if (!logsPaused && logsBoxRef.current) {
@@ -121,16 +131,20 @@
     const onRestart = () => act(fetchJSON("/restart", { method: "POST" }), loadStatus);
     const onInstallDeps = async () => {
       setLoading(true);
+      setError(null);
+      setNotice(null);
       try {
         const result = await fetchJSON("/install-deps", { method: "POST" });
         if (result.status === "error") {
           setError("Install failed: " + (result.message || "unknown error"));
-        } else if (result.status === "ok") {
-          setError(null);
         } else {
-          setError("Install result (" + result.status + "): " + (result.message || ""));
+          const installed = result.installed && result.installed.length > 0
+            ? "Installed: " + result.installed.join(", ") + "."
+            : "All dependencies are already present.";
+          setNotice(installed);
+          await loadDeps();
+          await loadStatus();
         }
-        await loadStatus();
       } catch (err) {
         setError("Install deps failed: " + String(err));
       } finally {
@@ -162,6 +176,18 @@
           h("p", { className: "text-muted-foreground" }, "Control the Hermes Chat daemon.")
         ),
         h(StatusPill, { running: status?.running || false, healthy: status?.healthy || false })
+      ),
+      missingDeps.length > 0 && h("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700 p-3 text-sm flex items-start justify-between gap-3" },
+        h("div", null,
+          h("span", { className: "font-semibold text-yellow-800 dark:text-yellow-200" }, "Missing dependencies: "),
+          h("span", { className: "text-yellow-700 dark:text-yellow-300" }, missingDeps.join(", ")),
+          h("p", { className: "text-yellow-600 dark:text-yellow-400 text-xs mt-1" }, "The daemon cannot start until these are installed.")
+        ),
+        h(Button, { onClick: onInstallDeps, disabled: loading, size: "sm", variant: "outline" }, loading ? "Installing..." : "Install Now")
+      ),
+      notice && h("div", { className: "rounded-md border border-green-400 bg-green-50 dark:bg-green-950 dark:border-green-700 p-3 text-sm flex items-center justify-between gap-3" },
+        h("span", { className: "text-green-800 dark:text-green-200" }, "✓ " + notice),
+        h("button", { onClick: () => setNotice(null), className: "text-green-600 dark:text-green-400 hover:opacity-70 text-xs" }, "✕")
       ),
       error && h("div", { className: "rounded-md bg-destructive/15 p-3 text-destructive text-sm" }, error),
       h(Card, null,

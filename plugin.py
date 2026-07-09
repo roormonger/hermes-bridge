@@ -229,13 +229,21 @@ def _do_register(ctx) -> None:
         handler=_tool_users,
     )
 
-    # Warn if dependencies are missing so the user knows to run install-deps.
+    # Auto-install missing dependencies on every plugin load so the first
+    # `hermes plugins install` just works without a separate install-deps step.
     missing = check_dependencies()
     if missing:
-        print(
-            "[hermes-chat] Missing dependencies: "
-            f"{', '.join(missing)}. Run `hermes hermes-chat install-deps` to install them."
-        )
+        print(f"[hermes-chat] Installing missing dependencies: {', '.join(missing)} ...")
+        result = install_dependencies(auto=True)
+        if result.get("status") == "error":
+            print(
+                f"[hermes-chat] Dependency install failed: {result.get('message')}\n"
+                "Run `hermes hermes-chat install-deps` to retry manually."
+            )
+            missing = check_dependencies()  # re-check in case partial install succeeded
+        else:
+            print("[hermes-chat] Dependencies installed successfully.")
+            missing = []
 
     # Auto-start on plugin load if configured. This is best-effort; Hermes
     # plugins are loaded during CLI startup, so the daemon survives beyond
