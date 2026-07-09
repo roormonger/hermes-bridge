@@ -390,11 +390,11 @@
               : "Last 100 lines from the Hermes Chat daemon log. Auto-scrolls to bottom."
           )
         ),
-        h(CardContent, null,
+        h(CardContent, { style: { padding: "0 1rem 1rem" } },
           h("pre", {
             ref: logsBoxRef,
-            className: "rounded-md bg-muted p-3 text-xs overflow-y-scroll font-mono whitespace-pre-wrap break-all",
-            style: { height: "320px", maxHeight: "320px" }
+            className: "rounded-md bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-all",
+            style: { height: "320px", overflowY: "scroll" }
           },
             logs || "No logs yet."
           )
