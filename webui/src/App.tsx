@@ -32,6 +32,7 @@ type Chat = {
 
 type Gate = {
   gateId: string;
+  gateKind: string;
   options: string[];
   prompt: string;
 };
@@ -495,9 +496,27 @@ function ChatApp() {
               : m
           )
         );
+      } else if (event.type === "tool_start") {
+        const toolLine = `\n\n⚙️ *${event.name || "tool"}*${event.context ? `: ${event.context}` : ""}…`;
+        assistantContentRef.current += toolLine;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, content: assistantContentRef.current } : m
+          )
+        );
+      } else if (event.type === "tool_complete") {
+        if (event.summary) {
+          assistantContentRef.current += ` ✓ ${event.summary}`;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, content: assistantContentRef.current } : m
+            )
+          );
+        }
       } else if (event.type === "gate_interrupt") {
         const gate: Gate = {
           gateId: event.gate_id,
+          gateKind: event.gate_kind || "approval",
           options: event.options || [],
           prompt: event.prompt || "",
         };
@@ -507,17 +526,32 @@ function ChatApp() {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? {
-                  ...m,
-                  content: assistantContentRef.current,
-                  status: "running",
-                  gate,
-                }
+              ? { ...m, content: assistantContentRef.current, status: "running", gate }
               : m
           )
         );
         updateBackendMessage(chatId, assistantId, assistantContentRef.current);
-      } else if (event.type === "process_exit") {
+      } else if (event.type === "turn_complete") {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: assistantContentRef.current, status: "complete", gate: null }
+              : m
+          )
+        );
+        setIsRunning(false);
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current);
+      } else if (event.type === "session_title") {
+        if (event.title) {
+          setChats((prev) =>
+            prev.map((c) => (c.chat_id === chatId ? { ...c, title: event.title } : c))
+          );
+          apiFetch(`/api/chats/${chatId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ title: event.title }),
+          }).catch(() => {});
+        }
+      } else if (event.type === "process_exit" || event.type === "error") {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -529,7 +563,7 @@ function ChatApp() {
         updateBackendMessage(chatId, assistantId, assistantContentRef.current);
       }
     },
-    []
+    [setChats]
   );
 
   const streamAssistant = async (chatId: string, userText: string) => {
@@ -579,6 +613,7 @@ function ChatApp() {
         body: JSON.stringify({
           chat_id: chatId,
           gate_id: gate.gateId,
+          gate_kind: gate.gateKind || "approval",
           choice,
         }),
       });

@@ -26,8 +26,14 @@ export const apiFetch = async (path: string, options: RequestInit = {}) => {
 
 export type SseEvent =
   | { type: "text"; text: string }
-  | { type: "gate_interrupt"; gate_id: string; options?: string[]; prompt?: string }
-  | { type: "process_exit" };
+  | { type: "gate_interrupt"; gate_id: string; gate_kind?: string; options?: string[]; prompt?: string; context?: Record<string, unknown> }
+  | { type: "process_exit" }
+  | { type: "turn_complete" }
+  | { type: "tool_start"; tool_id: string; name: string; context?: string }
+  | { type: "tool_progress"; tool_id: string; name: string; text: string }
+  | { type: "tool_complete"; tool_id: string; name: string; summary?: string; duration_s?: number }
+  | { type: "session_title"; title: string; session_id?: string }
+  | { type: "error"; message: string };
 
 export const streamEvents = async (
   url: string,

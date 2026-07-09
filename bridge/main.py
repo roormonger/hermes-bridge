@@ -3,11 +3,12 @@ hermes-bridge FastAPI service.
 
 Runs on the same host as the `hermes` CLI. Exposes:
 
-  POST /v1/chat          -> SSE stream of {"type": "text"|"gate_interrupt", ...}
-  POST /v1/gate/resolve  -> unblocks a paused subprocess awaiting a decision
+  POST /v1/chat          -> SSE stream of {"type": "text"|"gate_interrupt"|"tool_start"|...
+  POST /v1/gate/resolve  -> resolves an approval/clarify/sudo gate
+  WS   /api/ws           -> raw tui_gateway JSON-RPC WebSocket passthrough
   GET  /healthz          -> liveness probe
 
-See README.md for the full protocol description and Open WebUI plugin setup.
+See README.md for the full protocol description.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, status
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -27,7 +28,6 @@ from pydantic import BaseModel, Field
 from .chat_history import ChatHistoryStore
 from .config import _plugin_dir, auth_secret, load_config
 from .database import ChatSessionStore
-from .pty_manager import SessionManager
 from .users import UserStore
 
 config = load_config()
@@ -37,12 +37,29 @@ if config.debug:
 logging.basicConfig(level=_log_level)
 logger = logging.getLogger("hermes_bridge")
 
+# ---------------------------------------------------------------------------
+# Gateway backend selection: prefer tui_gateway (in-process JSON-RPC) over
+# the legacy PTY path. Both expose the same interface to the REST layer.
+# ---------------------------------------------------------------------------
+from .gateway_session import gateway_available, GatewaySessionManager, _translate_event
+
+if gateway_available():
+    logger.info("tui_gateway available — using in-process JSON-RPC backend")
+    _BACKEND = "gateway"
+else:
+    from .pty_manager import SessionManager as _PtySessionManager  # type: ignore
+    _BACKEND = "pty"
+
 app = FastAPI(title="hermes-bridge", version="0.1.0")
 
 store = ChatSessionStore()
 history = ChatHistoryStore()
-sessions = SessionManager(config)
 users = UserStore(secret=auth_secret())
+
+if _BACKEND == "gateway":
+    sessions = GatewaySessionManager(session_idle_timeout=config.session_idle_timeout)
+else:
+    sessions = _PtySessionManager(config)  # type: ignore[assignment]
 
 
 # --------------------------------------------------------------------------- #
@@ -67,6 +84,7 @@ async def chat_ui() -> FileResponse:
 async def _on_startup() -> None:
     logger.info("hermes-bridge listening on %s:%s", config.host, config.port)
     logger.info("hermes-bridge web UI directory: %s", _webui_dir)
+    logger.info("hermes-bridge backend: %s", _BACKEND)
 
 
 class ChatRequest(BaseModel):
@@ -78,6 +96,7 @@ class GateResolveRequest(BaseModel):
     chat_id: str
     gate_id: str
     choice: str
+    gate_kind: str = "approval"  # approval | clarify | sudo | secret
 
 
 class CreateChatRequest(BaseModel):
@@ -185,9 +204,90 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
     if not request.chat_id.strip():
         raise HTTPException(status_code=400, detail="chat_id is required")
     _verify_chat_access(request.chat_id, current_user)
-    loop = asyncio.get_event_loop()
-    hermes_session_id, _created = store.get_or_create_hermes_session_id(request.chat_id)
-    session = sessions.get_or_start(request.chat_id, hermes_session_id, loop)
+    loop = asyncio.get_running_loop()
+    if _BACKEND == "gateway":
+        return await _chat_gateway(request, loop)
+    return await _chat_pty(request, loop)
+
+
+# ---------------------------------------------------------------------------
+# Gateway backend
+# ---------------------------------------------------------------------------
+
+async def _chat_gateway(request: ChatRequest, loop: asyncio.AbstractEventLoop) -> StreamingResponse:
+    hermes_sid = store.get_hermes_session_id(request.chat_id)
+    gw = sessions.get_or_create(request.chat_id, hermes_sid, loop)  # type: ignore[attr-defined]
+
+    pending = gw.get_pending_gate()
+    if pending is not None:
+        gate_kind = pending.get("gate_kind", "approval")
+        gate_id = pending.get("gate_id", "")
+        options = pending.get("options", [])
+        choice = request.message.strip()
+        if options:
+            matched = _resolve_gate_choice(options, choice)
+            if matched is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Chat {request.chat_id} has an unresolved {gate_kind} gate "
+                        f"({gate_id}). Reply with one of {options} or call /v1/gate/resolve."
+                    ),
+                )
+            choice = matched
+        gw.set_pending_gate(None)
+        try:
+            await loop.run_in_executor(None, gw.respond_gate, gate_kind, gate_id, choice)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return StreamingResponse(_sse_stream_gateway(gw), media_type="text/event-stream")
+
+    try:
+        await loop.run_in_executor(None, gw.submit, request.message)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return StreamingResponse(_sse_stream_gateway(gw), media_type="text/event-stream")
+
+
+async def _sse_stream_gateway(gw) -> AsyncGenerator[bytes, None]:
+    """Translate tui_gateway JSON-RPC frames into SSE events for the web UI."""
+    while True:
+        frame = await gw.queue.get()
+        event = _translate_event(frame)
+
+        if event is None:
+            if "error" in frame:
+                event = {"type": "error", "message": frame["error"].get("message", "RPC error")}
+            else:
+                continue
+
+        yield f"data: {json.dumps(event)}\n\n".encode("utf-8")
+
+        etype = event.get("type", "")
+
+        if etype == "gate_interrupt":
+            gw.set_pending_gate(event)
+            if gw.hermes_session_id:
+                store.set_hermes_session_id(gw.chat_id, gw.hermes_session_id)
+            return
+
+        if etype == "turn_complete":
+            if gw.hermes_session_id:
+                store.set_hermes_session_id(gw.chat_id, gw.hermes_session_id)
+            return
+
+        if etype == "error":
+            return
+
+
+# ---------------------------------------------------------------------------
+# Legacy PTY backend (fallback)
+# ---------------------------------------------------------------------------
+
+async def _chat_pty(request: ChatRequest, loop: asyncio.AbstractEventLoop) -> StreamingResponse:
+    hermes_sid, _created = store.get_or_create_hermes_session_id(request.chat_id)
+    session = sessions.get_or_start(request.chat_id, hermes_sid, loop)  # type: ignore[attr-defined]
 
     pending_gate = session.get_pending_gate()
     if pending_gate is not None:
@@ -202,33 +302,27 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
                 ),
             )
         await loop.run_in_executor(None, session.resolve_gate, pending_gate.gate_id, matched)
-        return StreamingResponse(_sse_stream(session), media_type="text/event-stream")
+        return StreamingResponse(_sse_stream_pty(session), media_type="text/event-stream")
 
     try:
         await loop.run_in_executor(None, session.send_text, request.message)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    return StreamingResponse(_sse_stream(session), media_type="text/event-stream")
+    return StreamingResponse(_sse_stream_pty(session), media_type="text/event-stream")
 
 
-async def _sse_stream(session) -> AsyncGenerator[bytes, None]:
+async def _sse_stream_pty(session) -> AsyncGenerator[bytes, None]:
     while True:
         event = await session.queue.get()
         yield f"data: {json.dumps(event)}\n\n".encode("utf-8")
-
-        if event.get("type") == "gate_interrupt":
-            # Pause the stream here; the client must call /v1/gate/resolve
-            # and open a new /v1/chat "continuation" (or the same request,
-            # per client design) to keep receiving tokens. We simply stop
-            # this generator -- the Pipe script is expected to re-poll by
-            # issuing a resolve call, which resumes the subprocess, and a
-            # fresh /v1/chat-less drain happens automatically because the
-            # queue keeps accumulating events server-side between requests.
-            return
-        if event.get("type") == "process_exit":
+        if event.get("type") in ("gate_interrupt", "process_exit"):
             return
 
+
+# ---------------------------------------------------------------------------
+# Gate resolve (both backends)
+# ---------------------------------------------------------------------------
 
 @app.post("/v1/gate/resolve")
 async def resolve_gate(request: GateResolveRequest, current_user: dict = Depends(get_current_user)) -> dict:
@@ -239,13 +333,19 @@ async def resolve_gate(request: GateResolveRequest, current_user: dict = Depends
     if not request.choice.strip():
         raise HTTPException(status_code=400, detail="choice is required")
     _verify_chat_access(request.chat_id, current_user)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     session = sessions.get(request.chat_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"No active session for chat {request.chat_id}")
 
     try:
-        await loop.run_in_executor(None, session.resolve_gate, request.gate_id, request.choice)
+        if _BACKEND == "gateway":
+            session.set_pending_gate(None)  # type: ignore[attr-defined]
+            await loop.run_in_executor(
+                None, session.respond_gate, request.gate_kind, request.gate_id, request.choice  # type: ignore[attr-defined]
+            )
+        else:
+            await loop.run_in_executor(None, session.resolve_gate, request.gate_id, request.choice)  # type: ignore[attr-defined]
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -256,19 +356,40 @@ async def resolve_gate(request: GateResolveRequest, current_user: dict = Depends
 
 @app.post("/v1/chat/drain")
 async def drain(request: ChatRequest, current_user: dict = Depends(get_current_user)) -> StreamingResponse:
-    """Resume streaming any output queued after a gate was resolved.
-
-    The Pipe script should call this (with the same chat_id, message
-    ignored) immediately after a successful /v1/gate/resolve to continue
-    rendering tokens without sending a new user message.
-    """
+    """Resume streaming output after a gate was resolved out-of-band."""
     if not request.chat_id.strip():
         raise HTTPException(status_code=400, detail="chat_id is required")
     _verify_chat_access(request.chat_id, current_user)
     session = sessions.get(request.chat_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"No active session for chat {request.chat_id}")
-    return StreamingResponse(_sse_stream(session), media_type="text/event-stream")
+    if _BACKEND == "gateway":
+        return StreamingResponse(_sse_stream_gateway(session), media_type="text/event-stream")  # type: ignore[arg-type]
+    return StreamingResponse(_sse_stream_pty(session), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# WebSocket passthrough — raw tui_gateway JSON-RPC
+# ---------------------------------------------------------------------------
+
+@app.websocket("/api/ws")
+async def ws_gateway(ws: WebSocket) -> None:
+    """
+    Raw tui_gateway JSON-RPC WebSocket passthrough.
+
+    Lets the web UI speak the full tui_gateway protocol directly —
+    session management, slash commands, model switching, approvals, etc.
+    Only available when the gateway backend is active.
+    """
+    if _BACKEND != "gateway":
+        await ws.accept()
+        await ws.close(code=1011, reason="tui_gateway not available — PTY backend active")
+        return
+    try:
+        from tui_gateway.ws import handle_ws
+        await handle_ws(ws)
+    except Exception as exc:
+        logger.exception("ws_gateway error: %s", exc)
 
 
 # --------------------------------------------------------------------------- #

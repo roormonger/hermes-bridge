@@ -96,6 +96,22 @@ class ChatSessionStore:
             conn.commit()
             return hermes_session_id, True
 
+    def set_hermes_session_id(self, chat_id: str, hermes_session_id: str) -> None:
+        """Upsert the hermes_session_id for a chat_id (used by the gateway backend)."""
+        with self._lock, self._connect() as conn:
+            now = time.time()
+            conn.execute(
+                """
+                INSERT INTO chat_sessions (chat_id, hermes_session_id, created_at, last_used_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    hermes_session_id = excluded.hermes_session_id,
+                    last_used_at = excluded.last_used_at
+                """,
+                (chat_id, hermes_session_id, now, now),
+            )
+            conn.commit()
+
     def delete(self, chat_id: str) -> None:
         with self._lock, self._connect() as conn:
             conn.execute("DELETE FROM chat_sessions WHERE chat_id = ?", (chat_id,))
