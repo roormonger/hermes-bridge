@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
+  CompositeAttachmentAdapter,
+  SimpleImageAttachmentAdapter,
+  SimpleTextAttachmentAdapter,
   type AppendMessage,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
@@ -91,11 +94,21 @@ const convertMessage = (msg: ThreadMessageLike): ThreadMessageLike => {
 };
 
 const getAppendText = (msg: AppendMessage): string => {
-  if (typeof msg.content === "string") return msg.content;
-  return msg.content
-    .filter((p: any) => p.type === "text")
-    .map((p: any) => p.text)
+  const parts = typeof msg.content === "string" ? [{ type: "text", text: msg.content }] : msg.content;
+  const textParts = (parts as any[])
+    .filter((p) => p.type === "text")
+    .map((p) => p.text)
     .join("");
+  const attachmentParts = (parts as any[])
+    .filter((p) => p.type === "image" || p.type === "document")
+    .map((p) => {
+      if (p.type === "image") return `[Image attachment: ${p.image?.slice(0, 60)}...]`;
+      if (p.type === "document") return `[File attachment]\n${p.text ?? ""}`;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+  return [textParts, attachmentParts].filter(Boolean).join("\n\n");
 };
 
 // ---------------------------------------------------------------------------
@@ -733,10 +746,19 @@ function ChatApp() {
     [messages]
   );
 
+  const attachmentAdapter = useMemo(
+    () => new CompositeAttachmentAdapter([
+      new SimpleImageAttachmentAdapter(),
+      new SimpleTextAttachmentAdapter(),
+    ]),
+    []
+  );
+
   const runtime = useExternalStoreRuntime({
     messages: threadMessages,
     isRunning,
     convertMessage,
+    adapters: { attachments: attachmentAdapter },
     onNew: async (message: AppendMessage) => {
       if (isRunning) return;
       const text = getAppendText(message);
