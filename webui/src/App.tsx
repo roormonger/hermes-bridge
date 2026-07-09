@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, streamEvents, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
@@ -173,6 +173,8 @@ function ChatSidebar({
   onLogout,
   collapsed,
   onToggleCollapse,
+  mobileOpen,
+  onMobileClose,
 }: {
   chats: Chat[];
   currentChatId: string | null;
@@ -184,6 +186,8 @@ function ChatSidebar({
   onLogout: () => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  mobileOpen: boolean;
+  onMobileClose: () => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -194,12 +198,24 @@ function ChatSidebar({
   const groups = groupChats(filteredChats);
 
   return (
-    <div
-      className={cn(
-        "border-r bg-card flex flex-col h-full transition-all duration-200",
-        collapsed ? "w-16 items-center" : "w-72"
+    <>
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={onMobileClose}
+        />
       )}
-    >
+      <div
+        className={cn(
+          "bg-card flex flex-col h-full transition-all duration-200",
+          /* Desktop: inline, collapsible */
+          "hidden md:flex border-r",
+          collapsed ? "w-16 items-center" : "w-72",
+          /* Mobile: fixed slide-over */
+          mobileOpen && "!flex fixed inset-y-0 left-0 z-50 w-72 shadow-xl",
+        )}
+      >
       <div className={cn("w-full flex items-center border-b p-2", collapsed ? "justify-center" : "justify-between")}>
         {!collapsed && (
           <div className="flex items-center gap-2 overflow-hidden">
@@ -392,7 +408,8 @@ function ChatSidebar({
           {!collapsed && <LogOut className="size-4 shrink-0 text-muted-foreground" />}
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -403,6 +420,7 @@ function ChatSidebar({
 function ChatApp() {
   const { user, logout } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -713,16 +731,44 @@ function ChatApp() {
       <ChatSidebar
         chats={chats}
         currentChatId={currentChatId}
-        onSelect={setCurrentChatId}
-        onNew={createChat}
+        onSelect={(id) => { setCurrentChatId(id); setMobileSidebarOpen(false); }}
+        onNew={() => { createChat(); setMobileSidebarOpen(false); }}
         onRename={renameChat}
         onDelete={deleteChat}
         username={user?.username || ""}
         onLogout={logout}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+        mobileOpen={mobileSidebarOpen}
+        onMobileClose={() => setMobileSidebarOpen(false)}
       />
-      <div className="flex flex-1 flex-col h-full relative">
+      <div className="flex flex-1 flex-col h-full relative min-w-0">
+        {/* Mobile top bar */}
+        <div className="md:hidden flex items-center gap-2 border-b px-3 py-2 bg-card shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={() => setMobileSidebarOpen(true)}
+          >
+            <Menu className="size-4" />
+          </Button>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <img src="/static/hermes-logo.png" alt="Hermes" className="size-6 rounded-md object-contain shrink-0" />
+            <span className="font-semibold text-sm truncate">
+              {chats.find((c) => c.chat_id === currentChatId)?.title ?? "Hermes Chat"}
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0"
+            onClick={createChat}
+            title="New Chat"
+          >
+            <Plus className="size-4" />
+          </Button>
+        </div>
         {error && (
           <div className="absolute top-2 right-2 z-50 rounded-md bg-destructive px-4 py-2 text-sm text-destructive-foreground shadow">
             {error}
