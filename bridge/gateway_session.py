@@ -290,7 +290,17 @@ class GatewaySession:
         """Send a user message to the gateway (non-blocking, events arrive on queue)."""
         self.last_active = time.monotonic()
         sid = self.ensure_session()
-        self._call("prompt.submit", {"session_id": sid, "text": text})
+        result = self._call("prompt.submit", {"session_id": sid, "text": text})
+        # 4001 = session not found (e.g. bridge restarted, in-memory state wiped)
+        # Reset and recreate the session, then retry once.
+        if isinstance(result, dict) and result.get("error", {}).get("code") == 4001:
+            logger.warning(
+                "chat_id=%s session %s not found in gateway, recreating", self.chat_id, sid
+            )
+            with self._lock:
+                self.hermes_session_id = None
+            sid = self.ensure_session()
+            self._call("prompt.submit", {"session_id": sid, "text": text})
 
     # ------------------------------------------------------------------
     def get_pending_gate(self) -> Optional[dict]:
