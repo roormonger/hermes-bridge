@@ -109,7 +109,19 @@ function GateDialog({
   pendingGate: Gate | null;
   onChoice: (choice: string) => void;
 }) {
+  const [freeText, setFreeText] = useState("");
+  const isFreeText = !!pendingGate && pendingGate.options.length === 0;
+
   if (!pendingGate) return null;
+
+  const handleFreeTextSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = freeText.trim();
+    if (!val) return;
+    setFreeText("");
+    onChoice(val);
+  };
+
   return (
     <Dialog open={!!pendingGate} onOpenChange={() => {}}>
       <DialogContent showCloseButton={false}>
@@ -119,13 +131,28 @@ function GateDialog({
         <p className="text-muted-foreground">
           {pendingGate.prompt || "Choose an option:"}
         </p>
-        <div className="flex flex-col gap-2">
-          {pendingGate.options.map((option) => (
-            <Button key={option} onClick={() => onChoice(option)}>
-              {option}
+        {isFreeText ? (
+          <form onSubmit={handleFreeTextSubmit} className="flex gap-2">
+            <Input
+              autoFocus
+              value={freeText}
+              onChange={(e) => setFreeText(e.target.value)}
+              placeholder="Type your answer…"
+              className="flex-1"
+            />
+            <Button type="submit" disabled={!freeText.trim()}>
+              Send
             </Button>
-          ))}
-        </div>
+          </form>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {pendingGate.options.map((option) => (
+              <Button key={option} onClick={() => onChoice(option)}>
+                {option}
+              </Button>
+            ))}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
