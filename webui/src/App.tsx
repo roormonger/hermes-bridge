@@ -497,6 +497,7 @@ function ChatApp() {
   const assistantIdRef = useRef<string | null>(null);
   const assistantContentRef = useRef("");
   const currentChatIdRef = useRef(currentChatId);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     currentChatIdRef.current = currentChatId;
@@ -707,13 +708,17 @@ function ChatApp() {
       { id: assistantId, role: "assistant", content: "", status: "running", toolSteps: [], createdAt: Date.now() },
     ]);
 
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
     try {
       await streamEvents(
         "/v1/chat",
         { chat_id: chatId, message: userText },
-        (event) => handleStreamEvent(event, chatId, assistantId)
+        (event) => handleStreamEvent(event, chatId, assistantId),
+        ac.signal,
       );
     } catch (e) {
+      if ((e as Error).name === "AbortError") return;
       setError((e as Error).message);
       setIsRunning(false);
       setMessages((prev) =>
@@ -778,6 +783,31 @@ function ChatApp() {
     isRunning,
     convertMessage,
     adapters: { attachments: attachmentAdapter },
+    onCancel: async () => {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+      const chatId = currentChatIdRef.current;
+      if (chatId) {
+        try {
+          await apiFetch("/v1/chat/cancel", {
+            method: "POST",
+            body: JSON.stringify({ chat_id: chatId }),
+          });
+        } catch (e) {
+          console.warn("cancel request failed:", e);
+        }
+      }
+      const assistantId = assistantIdRef.current;
+      setIsRunning(false);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId ? { ...m, status: "complete" as const, gate: null } : m
+        )
+      );
+      if (assistantId && chatId) {
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current).catch(() => {});
+      }
+    },
     onNew: async (message: AppendMessage) => {
       if (isRunning) return;
       const text = getAppendText(message);

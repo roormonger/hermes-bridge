@@ -348,6 +348,22 @@ class GatewaySession:
         return (result.get("result") or {})
 
     # ------------------------------------------------------------------
+    def interrupt(self) -> None:
+        """Send session.interrupt to the gateway to stop the current turn."""
+        self.last_active = time.monotonic()
+        with self._lock:
+            sid = self.hermes_session_id
+        if not sid:
+            return
+        result = self._call("session.interrupt", {"session_id": sid})
+        if isinstance(result, dict) and "error" in result:
+            code = result["error"].get("code", 0)
+            msg = result["error"].get("message", "session.interrupt failed")
+            logger.warning("chat_id=%s session.interrupt error %s: %s", self.chat_id, code, msg)
+        else:
+            logger.info("chat_id=%s session.interrupt sent", self.chat_id)
+
+    # ------------------------------------------------------------------
     def get_pending_gate(self) -> Optional[dict]:
         with self._lock:
             return self._pending_gate

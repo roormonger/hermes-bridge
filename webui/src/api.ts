@@ -38,7 +38,8 @@ export type SseEvent =
 export const streamEvents = async (
   url: string,
   body: object,
-  onEvent: (event: SseEvent) => void
+  onEvent: (event: SseEvent) => void,
+  signal?: AbortSignal,
 ) => {
   const token = getToken();
   const res = await fetch(url, {
@@ -48,30 +49,38 @@ export const streamEvents = async (
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
+    signal,
   });
   if (!res.ok) throw new Error(res.statusText);
   const reader = res.body?.getReader();
   if (!reader) throw new Error("no response body");
   const decoder = new TextDecoder();
   let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("data: ")) {
-        const data = trimmed.slice(6);
-        if (data === "[DONE]") continue;
-        try {
-          const event = JSON.parse(data) as SseEvent;
-          onEvent(event);
-        } catch (e) {
-          console.error("failed to parse SSE event", data, e);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("data: ")) {
+          const data = trimmed.slice(6);
+          if (data === "[DONE]") continue;
+          try {
+            const event = JSON.parse(data) as SseEvent;
+            onEvent(event);
+          } catch (e) {
+            console.error("failed to parse SSE event", data, e);
+          }
         }
       }
     }
+  } catch (e) {
+    if ((e as Error).name === "AbortError") return;
+    throw e;
+  } finally {
+    reader.cancel().catch(() => {});
   }
 };

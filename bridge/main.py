@@ -343,6 +343,24 @@ async def image_attach(request: ImageAttachRequest, current_user: dict = Depends
     return result
 
 
+class CancelRequest(BaseModel):
+    chat_id: str
+
+
+@app.post("/v1/chat/cancel")
+async def cancel_chat(request: CancelRequest, current_user: dict = Depends(get_current_user)) -> dict:
+    """Interrupt the currently running agent turn for a chat."""
+    if _BACKEND != "gateway":
+        raise HTTPException(status_code=400, detail="Cancel requires gateway backend")
+    _verify_chat_access(request.chat_id, current_user)
+    loop = asyncio.get_running_loop()
+    gw = sessions.get(request.chat_id)  # type: ignore[attr-defined]
+    if gw is None:
+        return {"status": "no_session"}
+    await loop.run_in_executor(None, gw.interrupt)
+    return {"status": "interrupted"}
+
+
 # ---------------------------------------------------------------------------
 # Gateway backend
 # ---------------------------------------------------------------------------
