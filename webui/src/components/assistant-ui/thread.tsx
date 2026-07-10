@@ -38,6 +38,7 @@ import {
   WrenchIcon,
 } from "lucide-react";
 import { type FC, useState, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { getToken } from "../../api";
 
 // ---------------------------------------------------------------------------
@@ -51,9 +52,9 @@ const Lightbox: FC<{ src: string; onClose: () => void }> = ({ src, onClose }) =>
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
       onClick={onClose}
     >
       <img
@@ -68,7 +69,8 @@ const Lightbox: FC<{ src: string; onClose: () => void }> = ({ src, onClose }) =>
       >
         ✕
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
