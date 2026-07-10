@@ -114,6 +114,7 @@ class RenameChatRequest(BaseModel):
 class SaveMessageRequest(BaseModel):
     role: str
     content: str
+    images: list[str] = []
 
 
 class UpdateMessageRequest(BaseModel):
@@ -576,7 +577,7 @@ async def get_messages(chat_id: str, current_user: dict = Depends(get_current_us
 async def save_message(chat_id: str, request: SaveMessageRequest, current_user: dict = Depends(get_current_user)) -> dict:
     if history.get_chat(chat_id, current_user["user_id"]) is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    message_id = history.add_message(chat_id, current_user["user_id"], request.role, request.content)
+    message_id = history.add_message(chat_id, current_user["user_id"], request.role, request.content, images=request.images or None)
     return {"id": message_id, "role": request.role, "content": request.content}
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 import time
@@ -66,6 +67,12 @@ class ChatHistoryStore:
             CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id);
             """
         )
+        # Migration: add images column to older databases.
+        try:
+            conn.execute("ALTER TABLE messages ADD COLUMN images TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
     def _user_where(self, user_id: Optional[str]) -> str:
@@ -116,15 +123,16 @@ class ChatHistoryStore:
         ).fetchone()
         return dict(row) if row else None
 
-    def add_message(self, chat_id: str, user_id: Optional[str], role: str, content: str) -> int:
+    def add_message(self, chat_id: str, user_id: Optional[str], role: str, content: str, images: list[str] | None = None) -> int:
         conn = self._conn()
         # Ensure the chat belongs to the user (or is unowned) before adding a message.
         chat = self.get_chat(chat_id, user_id)
         if chat is None:
             raise PermissionError("chat not found or access denied")
+        images_json = json.dumps(images) if images else None
         cur = conn.execute(
-            "INSERT INTO messages (chat_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-            (chat_id, role, content, time.time()),
+            "INSERT INTO messages (chat_id, role, content, images, created_at) VALUES (?, ?, ?, ?, ?)",
+            (chat_id, role, content, images_json, time.time()),
         )
         conn.execute(
             f"UPDATE chats SET updated_at = ? WHERE chat_id = ? AND ({self._user_where(user_id)})",
@@ -153,10 +161,16 @@ class ChatHistoryStore:
         if chat is None:
             return []
         rows = conn.execute(
-            "SELECT id, role, content, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
+            "SELECT id, role, content, images, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
             (chat_id,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            d = dict(row)
+            raw = d.pop("images", None)
+            d["images"] = json.loads(raw) if raw else []
+            result.append(d)
+        return result
 
     def delete_messages(self, chat_id: str, user_id: Optional[str]) -> None:
         conn = self._conn()

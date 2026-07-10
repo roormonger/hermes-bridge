@@ -519,6 +519,7 @@ function ChatApp() {
           id: String(m.id),
           role: m.role,
           content: m.content,
+          images: m.images?.length ? m.images : undefined,
           status: m.role === "assistant" ? ("complete" as const) : undefined,
         }))
       );
@@ -579,11 +580,12 @@ function ChatApp() {
   const createBackendMessage = async (
     chatId: string,
     role: "user" | "assistant",
-    content: string
+    content: string,
+    images?: string[]
   ): Promise<string> => {
     const data = await apiFetch(`/api/chats/${chatId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ role, content }),
+      body: JSON.stringify({ role, content, images: images ?? [] }),
     });
     return String(data.id);
   };
@@ -811,7 +813,7 @@ function ChatApp() {
         }
       }
 
-      await createBackendMessage(chatId, "user", text);
+      await createBackendMessage(chatId, "user", text, images.map((img) => img.data));
       setMessages((prev) => [
         ...prev,
         {
