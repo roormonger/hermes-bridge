@@ -99,20 +99,29 @@ const getAppendText = (msg: AppendMessage): string => {
     .filter((p) => p.type === "text")
     .map((p) => p.text)
     .join("");
-  // Text/document files get inlined; images are uploaded separately via /v1/image/attach
-  const documentParts = (parts as any[])
-    .filter((p) => p.type === "document")
-    .map((p) => `[File: ${p.name ?? "attachment"}]\n${p.text ?? ""}`)
-    .filter(Boolean)
-    .join("\n");
-  return [textParts, documentParts].filter(Boolean).join("\n\n");
+  // Text/document file attachments are inlined; images are uploaded separately
+  const documentParts: string[] = [];
+  for (const att of (msg.attachments ?? []) as any[]) {
+    for (const part of (att.content ?? []) as any[]) {
+      if (part.type === "text") {
+        documentParts.push(`[File: ${att.name ?? "attachment"}]\n${part.text ?? ""}`);
+      }
+    }
+  }
+  return [textParts, ...documentParts].filter(Boolean).join("\n\n");
 };
 
 const getAppendImages = (msg: AppendMessage): Array<{ data: string; name: string }> => {
-  const parts = typeof msg.content === "string" ? [] : (msg.content as any[]);
-  return parts
-    .filter((p) => p.type === "image" && p.image)
-    .map((p) => ({ data: p.image as string, name: p.name ?? "image" }));
+  const results: Array<{ data: string; name: string }> = [];
+  for (const att of (msg.attachments ?? []) as any[]) {
+    const name: string = att.name ?? "image";
+    for (const part of (att.content ?? []) as any[]) {
+      if (part.type === "image" && part.image) {
+        results.push({ data: part.image as string, name });
+      }
+    }
+  }
+  return results;
 };
 
 // ---------------------------------------------------------------------------
