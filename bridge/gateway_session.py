@@ -258,6 +258,10 @@ class GatewaySession:
         self._lock = threading.Lock()
         self._pending_gate: Optional[dict] = None  # last gate_interrupt event
         self.last_active = time.monotonic()
+        # True once we've confirmed this session_id is live in the gateway.
+        # Starts False for sessions loaded from DB (may be stale); True for
+        # sessions we create ourselves in this process run.
+        self._session_verified: bool = hermes_session_id is None
 
     # ------------------------------------------------------------------
     def _call(self, method: str, params: dict) -> dict:
@@ -272,10 +276,25 @@ class GatewaySession:
 
     # ------------------------------------------------------------------
     def ensure_session(self) -> str:
-        """Return the Hermes session_id, creating one via the gateway if needed."""
+        """Return the Hermes session_id, creating one via the gateway if needed.
+
+        If the stored session_id is stale (gateway restarted, session reaped),
+        a new session is created transparently.
+        """
         with self._lock:
             if self.hermes_session_id:
-                return self.hermes_session_id
+                if self._session_verified:
+                    return self.hermes_session_id
+                # DB-loaded session — probe once to confirm it's still live.
+                probe = self._call("session.info", {"session_id": self.hermes_session_id})
+                if not (isinstance(probe, dict) and probe.get("error", {}).get("code") == 4001):
+                    self._session_verified = True
+                    return self.hermes_session_id
+                logger.warning(
+                    "chat_id=%s stored session_id=%s no longer exists in gateway, recreating",
+                    self.chat_id, self.hermes_session_id,
+                )
+                self.hermes_session_id = None
 
             result = self._call("session.create", {})
             sid = (result.get("result") or {}).get("session_id") or \
@@ -284,6 +303,7 @@ class GatewaySession:
                 logger.error("session.create returned no session_id: %r", result)
                 raise RuntimeError("Failed to create Hermes session: no session_id in response")
             self.hermes_session_id = sid
+            self._session_verified = True
             logger.info("chat_id=%s created hermes session_id=%s", self.chat_id, sid)
             return sid
 
