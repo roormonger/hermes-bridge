@@ -52,6 +52,7 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  images?: string[];  // data URLs for user-attached images
   status?: "running" | "complete";
   gate?: Gate | null;
   toolSteps?: ToolStep[];
@@ -69,7 +70,10 @@ const generateId = () => {
 const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
   id: msg.id,
   role: msg.role,
-  content: [{ type: "text", text: msg.content }],
+  content: [
+    ...(msg.images ?? []).map((src) => ({ type: "image" as const, image: src })),
+    { type: "text", text: msg.content },
+  ],
   status:
     msg.role === "assistant" && msg.status
       ? msg.status === "running"
@@ -810,7 +814,12 @@ function ChatApp() {
       await createBackendMessage(chatId, "user", text);
       setMessages((prev) => [
         ...prev,
-        { id: generateId(), role: "user", content: text },
+        {
+          id: generateId(),
+          role: "user",
+          content: text,
+          images: images.map((img) => img.data),
+        },
       ]);
       await streamAssistant(chatId, text);
     },
