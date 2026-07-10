@@ -19,6 +19,7 @@ import { useShallow } from "zustand/shallow";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
@@ -160,6 +161,7 @@ const AttachmentUI: FC = () => {
   const isError = uploadState === "error";
 
   return (
+    <TooltipProvider delayDuration={0}>
     <Tooltip>
       <AttachmentPrimitive.Root
         className={cn(
@@ -208,6 +210,7 @@ const AttachmentUI: FC = () => {
         <AttachmentPrimitive.Name />
       </TooltipContent>
     </Tooltip>
+    </TooltipProvider>
   );
 };
 
