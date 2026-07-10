@@ -72,6 +72,21 @@ const Lightbox: FC<{ src: string; onClose: () => void }> = ({ src, onClose }) =>
   );
 };
 
+const ImageWithLightbox: FC<{ image: string }> = ({ image }) => {
+  const [lb, setLb] = useState<string | null>(null);
+  return (
+    <>
+      <img
+        src={image}
+        alt="attachment"
+        className="mb-2 max-h-64 max-w-full cursor-zoom-in rounded-lg object-contain"
+        onClick={(e) => { e.stopPropagation(); setLb(image); }}
+      />
+      {lb && <Lightbox src={lb} onClose={() => setLb(null)} />}
+    </>
+  );
+};
+
 // ---------------------------------------------------------------------------
 // File path detection & download / inline preview
 // ---------------------------------------------------------------------------
@@ -602,20 +617,7 @@ const UserMessage: FC = () => {
         <div className="aui-user-message-content peer bg-muted text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden">
           <MessagePrimitive.Parts
             components={{
-              Image: ({ image }) => {
-                const [lb, setLb] = useState<string | null>(null);
-                return (
-                  <>
-                    <img
-                      src={image}
-                      alt="attachment"
-                      className="mb-2 max-h-64 max-w-full cursor-zoom-in rounded-lg object-contain"
-                      onClick={() => setLb(image)}
-                    />
-                    {lb && <Lightbox src={lb} onClose={() => setLb(null)} />}
-                  </>
-                );
-              },
+              Image: ImageWithLightbox,
             }}
           />
         </div>
