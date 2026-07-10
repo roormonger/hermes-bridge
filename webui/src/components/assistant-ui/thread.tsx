@@ -37,8 +37,40 @@ import {
   SquareIcon,
   WrenchIcon,
 } from "lucide-react";
-import { type FC, useState, useCallback } from "react";
+import { type FC, useState, useCallback, useEffect } from "react";
 import { getToken } from "../../api";
+
+// ---------------------------------------------------------------------------
+// Lightbox
+// ---------------------------------------------------------------------------
+
+const Lightbox: FC<{ src: string; onClose: () => void }> = ({ src, onClose }) => {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <img
+        src={src}
+        alt="preview"
+        className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+      <button
+        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+        onClick={onClose}
+      >
+        ✕
+      </button>
+    </div>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // File path detection & download / inline preview
@@ -69,6 +101,7 @@ function previewUrl(path: string): string {
 
 const FileDownloadLinks: FC<{ text: string }> = ({ text }) => {
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const paths = extractFilePaths(text);
   if (paths.length === 0) return null;
 
@@ -106,8 +139,9 @@ const FileDownloadLinks: FC<{ text: string }> = ({ text }) => {
           <img
             src={previewUrl(p)}
             alt={p.split("/").pop()}
-            className="max-h-96 w-auto max-w-full object-contain"
+            className="max-h-96 w-auto max-w-full cursor-zoom-in object-contain"
             loading="lazy"
+            onClick={() => setLightbox(previewUrl(p))}
           />
           <div className="flex items-center justify-between border-t border-border/30 px-3 py-1.5">
             <span className="max-w-[20rem] truncate font-mono text-xs text-muted-foreground">
@@ -124,6 +158,7 @@ const FileDownloadLinks: FC<{ text: string }> = ({ text }) => {
           </div>
         </div>
       ))}
+      {lightbox && <Lightbox src={lightbox} onClose={() => setLightbox(null)} />}
       {others.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {others.map((p) => (
@@ -567,13 +602,20 @@ const UserMessage: FC = () => {
         <div className="aui-user-message-content peer bg-muted text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden">
           <MessagePrimitive.Parts
             components={{
-              Image: ({ image }) => (
-                <img
-                  src={image}
-                  alt="attachment"
-                  className="mb-2 max-h-64 max-w-full rounded-lg object-contain"
-                />
-              ),
+              Image: ({ image }) => {
+                const [lb, setLb] = useState<string | null>(null);
+                return (
+                  <>
+                    <img
+                      src={image}
+                      alt="attachment"
+                      className="mb-2 max-h-64 max-w-full cursor-zoom-in rounded-lg object-contain"
+                      onClick={() => setLb(image)}
+                    />
+                    {lb && <Lightbox src={lb} onClose={() => setLb(null)} />}
+                  </>
+                );
+              },
             }}
           />
         </div>
