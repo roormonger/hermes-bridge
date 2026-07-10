@@ -309,11 +309,20 @@ class GatewaySession:
         """Attach an image to the session from base64 data (before prompt.submit)."""
         self.last_active = time.monotonic()
         sid = self.ensure_session()
-        result = self._call("image.attach_bytes", {
-            "session_id": sid,
-            "content_base64": content_base64,
-            "filename": filename,
-        })
+        logger.debug("chat_id=%s attach_image_bytes using session_id=%s", self.chat_id, sid)
+        params = {"session_id": sid, "content_base64": content_base64, "filename": filename}
+        result = self._call("image.attach_bytes", params)
+        logger.debug("chat_id=%s attach_image_bytes result=%r", self.chat_id, result)
+        if isinstance(result, dict) and result.get("error", {}).get("code") == 4001:
+            logger.warning(
+                "chat_id=%s session %s not found in gateway during image attach, recreating",
+                self.chat_id, sid,
+            )
+            with self._lock:
+                self.hermes_session_id = None
+            sid = self.ensure_session()
+            params["session_id"] = sid
+            result = self._call("image.attach_bytes", params)
         if isinstance(result, dict) and "error" in result:
             raise RuntimeError(result["error"].get("message", "image.attach_bytes failed"))
         return (result.get("result") or {})
