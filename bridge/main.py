@@ -395,13 +395,17 @@ def _hermes_dashboard_url() -> str:
 
     1. Explicit config value (hermes_dashboard_url)
     2. HERMES_DASHBOARD_URL environment variable
-    3. Default localhost port used by Hermes dashboard
+    3. HERMES_DASHBOARD_PORT environment variable (host 127.0.0.1)
+    4. Default localhost port used by Hermes dashboard
     """
     if config.hermes_dashboard_url:
         return config.hermes_dashboard_url
     env_url = os.environ.get("HERMES_DASHBOARD_URL")
     if env_url:
         return env_url
+    env_port = os.environ.get("HERMES_DASHBOARD_PORT")
+    if env_port:
+        return f"http://127.0.0.1:{env_port}"
     return _DEFAULT_HERMES_DASHBOARD_URL
 
 

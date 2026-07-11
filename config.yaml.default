@@ -10,8 +10,8 @@ port: 6969           # HTTP port
 # Hermes
 hermes_bin: hermes   # Path to the hermes CLI binary (or just "hermes" if it's on PATH)
 
-# Hermes dashboard URL. Leave empty to auto-detect from HERMES_DASHBOARD_URL
-# env var, falling back to http://127.0.0.1:9119.
+# Hermes dashboard URL. Leave empty to auto-detect from HERMES_DASHBOARD_URL,
+# then HERMES_DASHBOARD_PORT, falling back to http://127.0.0.1:9119.
 hermes_dashboard_url: ""
 
 # Sessions

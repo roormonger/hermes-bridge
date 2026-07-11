@@ -179,7 +179,7 @@ Settings live in `~/.hermes/plugins/hermes-chat/config.yaml` (or `config.yaml` i
 | `log_level` | `INFO` | Log level (`DEBUG`/`INFO`/`WARNING`/`ERROR`). |
 | `auto_start` | `true` | Auto-start the daemon when the Hermes plugin loads. |
 | `debug` | `false` | Enable verbose gateway/session logging. |
-| `hermes_dashboard_url` | `auto` | Hermes dashboard base URL. Auto-detected from `HERMES_DASHBOARD_URL` env var, otherwise defaults to `http://127.0.0.1:9119`. |
+| `hermes_dashboard_url` | `auto` | Hermes dashboard base URL. Auto-detected from `HERMES_DASHBOARD_URL`, then `HERMES_DASHBOARD_PORT`, otherwise defaults to `http://127.0.0.1:9119`. |
 
 ```bash
 hermes hermes-chat configure --port 8080 --hermes-bin /usr/local/bin/hermes --restart
