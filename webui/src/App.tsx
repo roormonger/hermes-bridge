@@ -17,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu, Undo2 } from "lucide-react";
+import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
@@ -1288,27 +1288,6 @@ function ChatApp() {
               {currentModelDisplay || "Model"}
             </Button>
           )}
-          {currentChatId && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 shrink-0"
-              onClick={handleUndo}
-              disabled={isRunning}
-              title="Undo last turn"
-            >
-              <Undo2 className="size-4" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 shrink-0"
-            onClick={createChat}
-            title="New Chat"
-          >
-            <Plus className="size-4" />
-          </Button>
         </div>
 
         {/* Desktop header */}
@@ -1353,27 +1332,6 @@ function ChatApp() {
                 {sessionInfo.yolo && <span>yolo</span>}
               </span>
             )}
-            {currentChatId && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0"
-                onClick={handleUndo}
-                disabled={isRunning}
-                title="Undo last turn"
-              >
-                <Undo2 className="size-4" />
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 shrink-0"
-              onClick={createChat}
-              title="New Chat"
-            >
-              <Plus className="size-4" />
-            </Button>
           </div>
         </div>
 
@@ -1384,7 +1342,7 @@ function ChatApp() {
         )}
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <AssistantRuntimeProvider runtime={runtime}>
-            <Thread />
+            <Thread onUndo={handleUndo} />
           </AssistantRuntimeProvider>
         </div>
         <GateDialog pendingGate={pendingGate} onChoice={handleGateChoice} />

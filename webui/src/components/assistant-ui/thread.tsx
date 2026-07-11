@@ -36,6 +36,7 @@ import {
   PencilIcon,
   RefreshCwIcon,
   SquareIcon,
+  Undo2Icon,
   WrenchIcon,
 } from "lucide-react";
 import { type FC, useState, useCallback, useEffect } from "react";
@@ -200,7 +201,7 @@ const isNewChatView = (s: AssistantState) =>
   s.thread.messages.length === 0 &&
   (!s.thread.isLoading || s.threads.isLoading);
 
-export const Thread: FC = () => {
+export const Thread: FC<{ onUndo?: () => void }> = ({ onUndo }) => {
   const isEmpty = useAuiState(isNewChatView);
 
   return (
@@ -246,7 +247,7 @@ export const Thread: FC = () => {
             )}
           >
             <ThreadScrollToBottom />
-            <Composer />
+            <Composer onUndo={onUndo} />
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
@@ -316,7 +317,7 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
-const Composer: FC = () => {
+const Composer: FC<{ onUndo?: () => void }> = ({ onUndo }) => {
   const composerRuntime = useComposerRuntime();
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -341,18 +342,36 @@ const Composer: FC = () => {
             aria-label="Message input"
             onKeyDown={handleKeyDown}
           />
-          <ComposerAction />
+          <ComposerAction onUndo={onUndo} />
         </div>
       </ComposerPrimitive.AttachmentDropzone>
     </ComposerPrimitive.Root>
   );
 };
 
-const ComposerAction: FC = () => {
+const ComposerAction: FC<{ onUndo?: () => void }> = ({ onUndo }) => {
+  const canUndo = useAuiState((s) => s.thread.messages.length > 0);
+  const isRunning = useAuiState((s) => s.thread.isRunning);
+
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <ComposerAddAttachment />
       <div className="flex items-center gap-1.5">
+        {onUndo && canUndo && (
+          <TooltipIconButton
+            tooltip="Undo last turn"
+            side="bottom"
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 rounded-full"
+            aria-label="Undo last turn"
+            onClick={onUndo}
+            disabled={isRunning}
+          >
+            <Undo2Icon className="size-4" />
+          </TooltipIconButton>
+        )}
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
           <AuiIf condition={(s) => s.composer.dictation == null}>
             <ComposerPrimitive.Dictate asChild>
