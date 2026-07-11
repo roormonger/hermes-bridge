@@ -1253,9 +1253,11 @@ function ChatApp() {
             {error}
           </div>
         )}
-        <AssistantRuntimeProvider runtime={runtime}>
-          <Thread />
-        </AssistantRuntimeProvider>
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          <AssistantRuntimeProvider runtime={runtime}>
+            <Thread />
+          </AssistantRuntimeProvider>
+        </div>
         <GateDialog pendingGate={pendingGate} onChoice={handleGateChoice} />
         <ModelPicker
           chatId={currentChatId}
