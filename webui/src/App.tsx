@@ -161,6 +161,10 @@ function flattenModelOptions(payload: any): ModelOption[] {
 
 const PROFILE_PROVIDER_NAME = "Hermes Profiles";
 
+function profileNameFromModel(model: string): string {
+  return model.split("/").pop() || model;
+}
+
 function flattenAnalyticsModels(payload: any): ModelOption[] {
   const models = payload?.models ?? [];
   const options: ModelOption[] = [];
@@ -170,7 +174,7 @@ function flattenAnalyticsModels(payload: any): ModelOption[] {
     if (!id) continue;
     options.push({
       id,
-      name: id,
+      name: profileNameFromModel(id),
       provider,
       providerName: PROFILE_PROVIDER_NAME,
       isProfile: true,
@@ -338,7 +342,7 @@ function ModelPicker({
   }, [analytics, current]);
   const currentLabel = current.model
     ? isProfileCurrent
-      ? `hermes/profile/${current.model}`
+      ? `hermes/profile/${profileNameFromModel(current.model)}`
       : `${currentProviderLabel ? `${currentProviderLabel} / ` : ""}${current.model}`
     : "Loading…";
 
@@ -858,7 +862,7 @@ function ChatApp() {
         );
         if (match) {
           setProfileModels((prev) => new Set(prev).add(model));
-          setCurrentModelDisplay(`hermes/profile/${model}`);
+          setCurrentModelDisplay(`hermes/profile/${profileNameFromModel(model)}`);
         } else {
           setCurrentModelDisplay(provider ? `${provider} / ${model}` : model);
         }
@@ -1035,7 +1039,7 @@ function ChatApp() {
           const providerLower = provider.toLowerCase();
           const modelLower = event.model.toLowerCase();
           if (profileModels.has(event.model)) {
-            setCurrentModelDisplay(`hermes/profile/${event.model}`);
+            setCurrentModelDisplay(`hermes/profile/${profileNameFromModel(event.model)}`);
           } else {
             // Hermes sometimes reports the model vendor ("deepseek") as provider
             // while the real gateway ("openrouter") lives elsewhere. Avoid
@@ -1391,7 +1395,7 @@ function ChatApp() {
           onModelChange={(model, provider, isProfile) => {
             if (isProfile) {
               setProfileModels((prev) => new Set(prev).add(model));
-              setCurrentModelDisplay(`hermes/profile/${model}`);
+              setCurrentModelDisplay(`hermes/profile/${profileNameFromModel(model)}`);
             } else {
               setCurrentModelDisplay(provider ? `${provider} / ${model}` : model);
             }
