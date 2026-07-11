@@ -59,6 +59,9 @@ export const setModel = (
     }),
   });
 
+export const getUsage = (chatId: string) =>
+  apiFetch(`/v1/usage?chat_id=${encodeURIComponent(chatId)}`);
+
 export const undoLastTurn = (chatId: string) =>
   apiFetch("/v1/chat/undo", {
     method: "POST",

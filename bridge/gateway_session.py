@@ -199,8 +199,6 @@ def _translate_event(frame: dict) -> Optional[dict]:
         }
 
     if etype == "session.info":
-        import logging
-        logging.getLogger(__name__).info("session.info payload: %r", payload)
         model = payload.get("model", "")
         provider = payload.get("provider", "")
         # Hermes sometimes reports the model as "<model> --provider <gateway>".
@@ -461,6 +459,29 @@ class GatewaySession:
         )
         if isinstance(result, dict) and "error" in result:
             raise RuntimeError(result["error"].get("message", "config.set model failed"))
+        return result.get("result") or {}
+
+    # ------------------------------------------------------------------
+    def session_usage(self) -> dict:
+        """Return token usage for the current session, or {} if none exists."""
+        sid = self.hermes_session_id
+        if not sid:
+            return {}
+        result = self._call("session.usage", {"session_id": sid})
+        if isinstance(result, dict) and "error" in result:
+            logger.warning("session.usage error: %s", result["error"].get("message"))
+            return {}
+        return result.get("result") or {}
+
+    def session_context_breakdown(self) -> dict:
+        """Return context breakdown for the current session, or {} if none exists."""
+        sid = self.hermes_session_id
+        if not sid:
+            return {}
+        result = self._call("session.context_breakdown", {"session_id": sid})
+        if isinstance(result, dict) and "error" in result:
+            logger.warning("session.context_breakdown error: %s", result["error"].get("message"))
+            return {}
         return result.get("result") or {}
 
     # ------------------------------------------------------------------

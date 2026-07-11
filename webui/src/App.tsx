@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
+import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
 
 // ---------------------------------------------------------------------------
@@ -87,6 +87,24 @@ const usageDelta = (before: ChatMessage["usage"], after: ChatMessage["usage"]): 
   };
   if (delta.totalTokens <= 0) return undefined;
   return delta;
+};
+
+const normalizeUsage = (data: any): { usage: ChatMessage["usage"]; contextWindow?: number } => {
+  const usage = data?.usage || {};
+  const breakdown = data?.context_breakdown || {};
+  const normalized: ChatMessage["usage"] = {
+    inputTokens: usage.input_tokens ?? usage.prompt_tokens ?? 0,
+    outputTokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
+    cachedInputTokens: usage.cache_read_tokens ?? usage.cached_tokens ?? 0,
+    reasoningTokens: usage.reasoning_tokens ?? 0,
+    totalTokens: usage.total_tokens ?? (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0),
+  };
+  const contextWindow =
+    breakdown.context_window ??
+    breakdown.context_window_tokens ??
+    usage.context_window ??
+    0;
+  return { usage: normalized, contextWindow };
 };
 
 const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
@@ -867,6 +885,20 @@ function ChatApp() {
     }
   }, []);
 
+  const refreshUsage = useCallback(async (chatId?: string) => {
+    const cid = chatId || currentChatIdRef.current;
+    if (!cid) return;
+    try {
+      const data = await getUsage(cid);
+      const { usage, contextWindow } = normalizeUsage(data);
+      setThreadUsage(usage);
+      threadUsageRef.current = usage;
+      if (contextWindow) setContextWindow(contextWindow);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     loadChats();
   }, [loadChats]);
@@ -877,6 +909,7 @@ function ChatApp() {
       setSessionInfo({});
       setContextWindow(0);
       setThreadUsage({});
+      refreshUsage(currentChatId);
     } else {
       setMessages([]);
       setSessionInfo({});
@@ -906,6 +939,14 @@ function ChatApp() {
       })
       .catch(() => setCurrentModelDisplay(""));
   }, [currentChatId]);
+
+  useEffect(() => {
+    if (!currentChatId) return;
+    const interval = setInterval(() => {
+      refreshUsage(currentChatId);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [currentChatId, refreshUsage]);
 
   const createChat = async () => {
     try {
@@ -1064,8 +1105,6 @@ function ChatApp() {
           }).catch(() => {});
         }
       } else if (event.type === "session_info") {
-        // eslint-disable-next-line no-console
-        console.log("[session_info]", event);
         setSessionInfo({
           model: event.model,
           provider: event.gateway || event.api_provider || event.provider,
@@ -1086,6 +1125,9 @@ function ChatApp() {
         };
         setThreadUsage(nextUsage);
         threadUsageRef.current = nextUsage;
+        if (!event.context_window && !event.total_tokens) {
+          refreshUsage(chatId);
+        }
         if (event.model) {
           const provider = event.gateway || event.api_provider || event.provider || "";
           const providerLower = provider.toLowerCase();
@@ -1146,6 +1188,15 @@ function ChatApp() {
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId ? { ...m, status: "complete", gate: null } : m
+        )
+      );
+    }
+    await refreshUsage(chatId);
+    const delta = usageDelta(usageBeforeRef.current, threadUsageRef.current);
+    if (delta) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId ? { ...m, usage: delta } : m
         )
       );
     }

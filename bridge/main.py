@@ -379,6 +379,25 @@ async def undo_chat(request: CancelRequest, current_user: dict = Depends(get_cur
     return {"status": "ok", "deleted": deleted}
 
 
+@app.get("/v1/usage")
+async def get_usage(
+    chat_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Return the current session's token usage and context breakdown from Hermes."""
+    if _BACKEND != "gateway":
+        raise HTTPException(status_code=400, detail="Usage requires gateway backend")
+    _verify_chat_access(chat_id, current_user)
+    loop = asyncio.get_running_loop()
+    hermes_sid = store.get_hermes_session_id(chat_id)
+    gw = sessions.get_or_create(chat_id, hermes_sid, loop)  # type: ignore[attr-defined]
+    usage, breakdown = await asyncio.gather(
+        loop.run_in_executor(None, gw.session_usage),
+        loop.run_in_executor(None, gw.session_context_breakdown),
+    )
+    return {"usage": usage, "context_breakdown": breakdown}
+
+
 class ModelSwitchRequest(BaseModel):
     chat_id: str
     model: str
