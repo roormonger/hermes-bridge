@@ -92,16 +92,24 @@ const usageDelta = (before: ChatMessage["usage"], after: ChatMessage["usage"]): 
 const normalizeUsage = (data: any): { usage: ChatMessage["usage"]; contextWindow?: number } => {
   const usage = data?.usage || {};
   const breakdown = data?.context_breakdown || {};
+  const inputTokens = usage.input ?? usage.prompt ?? 0;
+  const outputTokens = usage.output ?? 0;
+  const totalTokens =
+    usage.total ||
+    inputTokens + outputTokens ||
+    breakdown.context_used ||
+    breakdown.estimated_total ||
+    0;
   const normalized: ChatMessage["usage"] = {
-    inputTokens: usage.input_tokens ?? usage.prompt_tokens ?? 0,
-    outputTokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
-    cachedInputTokens: usage.cache_read_tokens ?? usage.cached_tokens ?? 0,
-    reasoningTokens: usage.reasoning_tokens ?? 0,
-    totalTokens: usage.total_tokens ?? (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0),
+    inputTokens,
+    outputTokens,
+    cachedInputTokens: usage.cache_read ?? usage.cached ?? 0,
+    reasoningTokens: usage.reasoning ?? 0,
+    totalTokens,
   };
   const contextWindow =
+    breakdown.context_max ??
     breakdown.context_window ??
-    breakdown.context_window_tokens ??
     usage.context_window ??
     0;
   return { usage: normalized, contextWindow };
@@ -890,8 +898,6 @@ function ChatApp() {
     if (!cid) return;
     try {
       const data = await getUsage(cid);
-      // eslint-disable-next-line no-console
-      console.log("[usage] raw", data, "normalized", normalizeUsage(data));
       const { usage, contextWindow } = normalizeUsage(data);
       setThreadUsage(usage);
       threadUsageRef.current = usage;
