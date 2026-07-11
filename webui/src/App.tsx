@@ -1094,6 +1094,8 @@ function ChatApp() {
         updateBackendMessage(chatId, assistantId, assistantContentRef.current);
       } else if (event.type === "turn_complete") {
         const delta = usageDelta(usageBeforeRef.current, threadUsageRef.current);
+        // eslint-disable-next-line no-console
+        console.log("[turn_complete] delta", delta, "before", usageBeforeRef.current, "after", threadUsageRef.current);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -1175,6 +1177,8 @@ function ChatApp() {
     assistantContentRef.current = "";
     await refreshUsage(chatId);
     usageBeforeRef.current = threadUsageRef.current ?? {};
+    // eslint-disable-next-line no-console
+    console.log("[streamAssistant] baseline", usageBeforeRef.current);
     const assistantId = await createBackendMessage(chatId, "assistant", "");
     assistantIdRef.current = assistantId;
     setMessages((prev) => [
@@ -1203,6 +1207,8 @@ function ChatApp() {
     }
     await refreshUsage(chatId);
     const delta = usageDelta(usageBeforeRef.current, threadUsageRef.current);
+    // eslint-disable-next-line no-console
+    console.log("[streamAssistant] after", threadUsageRef.current, "delta", delta);
     if (delta) {
       setMessages((prev) =>
         prev.map((m) =>
