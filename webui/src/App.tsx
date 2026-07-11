@@ -925,7 +925,15 @@ function ChatApp() {
         });
         if (event.model) {
           const provider = event.gateway || event.api_provider || event.provider || "";
-          setCurrentModelDisplay(provider ? `${provider} / ${event.model}` : event.model);
+          const providerLower = provider.toLowerCase();
+          const modelLower = event.model.toLowerCase();
+          // Hermes sometimes reports the model vendor ("deepseek") as provider
+          // while the real gateway ("openrouter") lives elsewhere. Avoid
+          // overwriting the top-bar gateway label with a vendor prefix.
+          const isVendorOnly = providerLower && modelLower.startsWith(`${providerLower}/`);
+          if (!isVendorOnly) {
+            setCurrentModelDisplay(provider ? `${provider} / ${event.model}` : event.model);
+          }
         }
       } else if (event.type === "process_exit" || event.type === "error") {
         setMessages((prev) =>

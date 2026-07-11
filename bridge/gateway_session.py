@@ -426,42 +426,15 @@ class GatewaySession:
         if isinstance(result, dict) and "error" in result:
             raise RuntimeError(result["error"].get("message", "config.get provider failed"))
         data = result.get("result") or {}
-        # Some Hermes configs separate the routing/API gateway from the model vendor.
-        for key in ("gateway", "api_provider"):
-            try:
-                r = self._call("config.get", {"key": key})
-                if isinstance(r, dict) and "result" in r:
-                    value = r["result"]
-                    if isinstance(value, dict):
-                        data.update(value)
-                    elif value:
-                        data[key] = value
-            except RuntimeError:
-                pass
-        # If config.get provider returned the model vendor (e.g. "deepseek") instead of
-        # the routing gateway (e.g. "openrouter"), resolve the gateway from the catalog.
-        model = data.get("model", "")
-        provider = data.get("provider", "")
-        if (
-            model
-            and provider
-            and model.lower().startswith(f"{provider.lower()}/")
-        ):
-            try:
-                catalog = self.model_options(explicit_only=True, include_unauthenticated=False)
-                for grp in catalog.get("providers", []):
-                    grp_id = grp.get("id") or grp.get("provider") or ""
-                    grp_name = grp.get("name") or grp_id
-                    for m in grp.get("models", []):
-                        m_id = m.get("id") or m.get("model") or ""
-                        if m_id and m_id == model:
-                            data["provider"] = grp_name or grp_id
-                            break
-                    else:
-                        continue
-                    break
-            except RuntimeError:
-                pass
+        # model.options returns the real routing gateway in its top-level provider field,
+        # whereas config.get provider often returns the model vendor (e.g. "deepseek").
+        try:
+            opts = self.model_options(explicit_only=True, include_unauthenticated=False)
+            if opts.get("model") and opts.get("provider"):
+                data["model"] = opts["model"]
+                data["provider"] = opts["provider"]
+        except RuntimeError:
+            pass
         return data
 
     # ------------------------------------------------------------------
