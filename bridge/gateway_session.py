@@ -199,10 +199,17 @@ def _translate_event(frame: dict) -> Optional[dict]:
         }
 
     if etype == "session.info":
+        model = payload.get("model", "")
+        provider = payload.get("provider", "")
+        # Hermes sometimes reports the model as "<model> --provider <gateway>".
+        if isinstance(model, str) and " --provider " in model:
+            model, provider = model.split(" --provider ", 1)
+            model = model.strip()
+            provider = provider.strip()
         return {
             "type": "session_info",
-            "model": payload.get("model", ""),
-            "provider": payload.get("provider", ""),
+            "model": model,
+            "provider": provider,
             "gateway": payload.get("gateway", ""),
             "api_provider": payload.get("api_provider", ""),
             "reasoning_effort": payload.get("reasoning_effort", ""),
@@ -393,7 +400,7 @@ class GatewaySession:
         return result.get("result") or {"status": "ok"}
 
     # ------------------------------------------------------------------
-    def model_options(self) -> dict:
+    def model_options(self, *, explicit_only: bool = True, include_unauthenticated: bool = False) -> dict:
         """Return the gateway's model/provider picker payload."""
         self.last_active = time.monotonic()
         params: dict = {
@@ -401,6 +408,8 @@ class GatewaySession:
             "canonical_order": True,
             "pricing": True,
             "capabilities": True,
+            "explicit_only": explicit_only,
+            "include_unauthenticated": include_unauthenticated,
         }
         if self.hermes_session_id:
             params["session_id"] = self.hermes_session_id
@@ -427,6 +436,30 @@ class GatewaySession:
                         data.update(value)
                     elif value:
                         data[key] = value
+            except RuntimeError:
+                pass
+        # If config.get provider returned the model vendor (e.g. "deepseek") instead of
+        # the routing gateway (e.g. "openrouter"), resolve the gateway from the catalog.
+        model = data.get("model", "")
+        provider = data.get("provider", "")
+        if (
+            model
+            and provider
+            and model.lower().startswith(f"{provider.lower()}/")
+        ):
+            try:
+                catalog = self.model_options(explicit_only=True, include_unauthenticated=False)
+                for grp in catalog.get("providers", []):
+                    grp_id = grp.get("id") or grp.get("provider") or ""
+                    grp_name = grp.get("name") or grp_id
+                    for m in grp.get("models", []):
+                        m_id = m.get("id") or m.get("model") or ""
+                        if m_id and m_id == model:
+                            data["provider"] = grp_name or grp_id
+                            break
+                    else:
+                        continue
+                    break
             except RuntimeError:
                 pass
         return data
