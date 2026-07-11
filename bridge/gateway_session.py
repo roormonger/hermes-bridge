@@ -199,6 +199,8 @@ def _translate_event(frame: dict) -> Optional[dict]:
         }
 
     if etype == "session.info":
+        import logging
+        logging.getLogger(__name__).info("session.info payload: %r", payload)
         model = payload.get("model", "")
         provider = payload.get("provider", "")
         # Hermes sometimes reports the model as "<model> --provider <gateway>".

@@ -1064,6 +1064,8 @@ function ChatApp() {
           }).catch(() => {});
         }
       } else if (event.type === "session_info") {
+        // eslint-disable-next-line no-console
+        console.log("[session_info]", event);
         setSessionInfo({
           model: event.model,
           provider: event.gateway || event.api_provider || event.provider,
