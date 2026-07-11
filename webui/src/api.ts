@@ -38,6 +38,8 @@ export type SseEvent =
 
 export const getModels = () => apiFetch("/v1/models");
 
+export const getAnalyticsModels = () => apiFetch("/v1/analytics/models");
+
 export const getCurrentModel = (chatId?: string) =>
   apiFetch(chatId ? `/v1/model?chat_id=${encodeURIComponent(chatId)}` : "/v1/model");
 

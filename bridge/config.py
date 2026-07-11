@@ -30,6 +30,7 @@ DEFAULTS: dict[str, Any] = {
     "log_level": "INFO",
     "auto_start": True,
     "debug": False,
+    "hermes_dashboard_url": "",
 }
 
 
@@ -43,6 +44,7 @@ class BridgeConfig:
     log_level: str
     auto_start: bool
     debug: bool
+    hermes_dashboard_url: str
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,6 +56,7 @@ class BridgeConfig:
             "log_level": self.log_level,
             "auto_start": self.auto_start,
             "debug": self.debug,
+            "hermes_dashboard_url": self.hermes_dashboard_url,
         }
 
 

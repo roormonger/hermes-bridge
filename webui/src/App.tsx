@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch, getModels, getCurrentModel, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
+import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
 
 // ---------------------------------------------------------------------------
@@ -158,6 +158,23 @@ function flattenModelOptions(payload: any): ModelOption[] {
   return options;
 }
 
+function flattenAnalyticsModels(payload: any): ModelOption[] {
+  const models = payload?.models ?? [];
+  const options: ModelOption[] = [];
+  for (const model of models) {
+    const id = model?.model || "";
+    const provider = model?.provider || "";
+    if (!id) continue;
+    options.push({
+      id,
+      name: id,
+      provider,
+      providerName: provider || "Your models",
+    });
+  }
+  return options;
+}
+
 function ModelPicker({
   chatId,
   open,
@@ -170,6 +187,8 @@ function ModelPicker({
   onModelChange?: (model: string, provider: string) => void;
 }) {
   const [catalog, setCatalog] = useState<any>(null);
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [showCatalog, setShowCatalog] = useState(false);
   const [current, setCurrent] = useState<{ model?: string; provider?: string; gateway?: string; api_provider?: string }>({});
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -181,21 +200,38 @@ function ModelPicker({
     if (!open) return;
     setLoading(true);
     setError(null);
-    Promise.all([getModels(), chatId ? getCurrentModel(chatId) : getCurrentModel()])
-      .then(([modelsData, currentData]) => {
-        setCatalog(modelsData);
+    setCatalog(null);
+    setAnalytics(null);
+    setShowCatalog(false);
+    Promise.all([
+      getAnalyticsModels().catch(() => null),
+      chatId ? getCurrentModel(chatId) : getCurrentModel(),
+    ])
+      .then(([analyticsData, currentData]) => {
         setCurrent({
           model: currentData?.model || "",
           provider: currentData?.provider || "",
           gateway: currentData?.gateway || "",
           api_provider: currentData?.api_provider || "",
         });
+        if (analyticsData?.models && analyticsData.models.length > 0) {
+          setAnalytics(analyticsData);
+        } else {
+          // No analytics available; fall back to the full model catalog.
+          setShowCatalog(true);
+          return getModels().then(setCatalog);
+        }
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
   }, [open, chatId]);
 
-  const options = useMemo(() => flattenModelOptions(catalog), [catalog]);
+  const options = useMemo(() => {
+    if (!showCatalog && analytics?.models?.length) {
+      return flattenAnalyticsModels(analytics);
+    }
+    return flattenModelOptions(catalog);
+  }, [analytics, catalog, showCatalog]);
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return options;
@@ -262,9 +298,35 @@ function ModelPicker({
             <DialogTitle>Switch Model</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">Current: {currentLabel}</p>
-          <p className="text-xs text-muted-foreground/70">
-            Lists all models available through your configured Hermes providers.
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground/70">
+              {showCatalog
+                ? "Showing all models available through your configured providers."
+                : "Showing your recently-used Hermes models."}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto px-2 py-1 text-xs"
+              onClick={() => {
+                if (!showCatalog) {
+                  setShowCatalog(true);
+                  if (!catalog) {
+                    setLoading(true);
+                    getModels()
+                      .then(setCatalog)
+                      .catch((e) => setError((e as Error).message))
+                      .finally(() => setLoading(false));
+                  }
+                } else {
+                  setShowCatalog(false);
+                }
+              }}
+            >
+              {showCatalog ? "Your models" : "All models"}
+            </Button>
+          </div>
           <Input
             placeholder="Search models…"
             value={search}

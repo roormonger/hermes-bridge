@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import urllib.error
+import urllib.request
 import uuid
 from pathlib import Path
 from typing import AsyncGenerator
@@ -398,6 +400,29 @@ async def list_models(current_user: dict = Depends(get_current_user)) -> dict:
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return result
+
+
+@app.get("/v1/analytics/models")
+async def list_analytics_models(current_user: dict = Depends(get_current_user)) -> dict:
+    """Proxy the Hermes dashboard analytics models list (recently-used / saved profiles)."""
+    if not config.hermes_dashboard_url:
+        raise HTTPException(
+            status_code=400,
+            detail="hermes_dashboard_url is not configured; set it in config.yaml and restart",
+        )
+    url = config.hermes_dashboard_url.rstrip("/") + "/api/analytics/models"
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data
+    except urllib.error.HTTPError as exc:
+        raise HTTPException(
+            status_code=exc.code,
+            detail=exc.read().decode("utf-8", errors="ignore"),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.get("/v1/model")
