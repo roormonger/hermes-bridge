@@ -35,6 +35,27 @@ export type SseEvent =
   | { type: "session_title"; title: string; session_id?: string }
   | { type: "error"; message: string };
 
+export const getModels = () => apiFetch("/v1/models");
+
+export const getCurrentModel = (chatId?: string) =>
+  apiFetch(chatId ? `/v1/model?chat_id=${encodeURIComponent(chatId)}` : "/v1/model");
+
+export const setModel = (
+  chatId: string,
+  model: string,
+  provider?: string,
+  confirmExpensiveModel?: boolean,
+) =>
+  apiFetch("/v1/model", {
+    method: "POST",
+    body: JSON.stringify({
+      chat_id: chatId,
+      model,
+      provider: provider || "",
+      confirm_expensive_model: !!confirmExpensiveModel,
+    }),
+  });
+
 export const streamEvents = async (
   url: string,
   body: object,

@@ -361,6 +361,72 @@ async def cancel_chat(request: CancelRequest, current_user: dict = Depends(get_c
     return {"status": "interrupted"}
 
 
+class ModelSwitchRequest(BaseModel):
+    chat_id: str
+    model: str
+    provider: str = ""
+    confirm_expensive_model: bool = False
+
+
+# Shared scratch session key for catalog RPCs that don't belong to a specific chat.
+_MODEL_CATALOG_CHAT_ID = "__hermes_bridge_models_catalog__"
+
+
+@app.get("/v1/models")
+async def list_models(current_user: dict = Depends(get_current_user)) -> dict:
+    """List all available models/providers configured in Hermes."""
+    if _BACKEND != "gateway":
+        raise HTTPException(status_code=400, detail="Model picker requires gateway backend")
+    loop = asyncio.get_running_loop()
+    gw = sessions.get_or_create(_MODEL_CATALOG_CHAT_ID, None, loop)  # type: ignore[attr-defined]
+    try:
+        result = await loop.run_in_executor(None, gw.model_options)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return result
+
+
+@app.get("/v1/model")
+async def get_model(
+    chat_id: str | None = None,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Get the currently selected model/provider. Optionally for a live chat session."""
+    if _BACKEND != "gateway":
+        raise HTTPException(status_code=400, detail="Model info requires gateway backend")
+    loop = asyncio.get_running_loop()
+    if chat_id:
+        _verify_chat_access(chat_id, current_user)
+        hermes_sid = store.get_hermes_session_id(chat_id)
+        gw = sessions.get_or_create(chat_id, hermes_sid, loop)  # type: ignore[attr-defined]
+    else:
+        gw = sessions.get_or_create(_MODEL_CATALOG_CHAT_ID, None, loop)  # type: ignore[attr-defined]
+    try:
+        result = await loop.run_in_executor(None, gw.current_model)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return result
+
+
+@app.post("/v1/model")
+async def set_model(request: ModelSwitchRequest, current_user: dict = Depends(get_current_user)) -> dict:
+    """Switch the model for a chat session."""
+    if _BACKEND != "gateway":
+        raise HTTPException(status_code=400, detail="Model switch requires gateway backend")
+    _verify_chat_access(request.chat_id, current_user)
+    loop = asyncio.get_running_loop()
+    hermes_sid = store.get_hermes_session_id(request.chat_id)
+    gw = sessions.get_or_create(request.chat_id, hermes_sid, loop)  # type: ignore[attr-defined]
+    value = request.model
+    if request.provider:
+        value = f"{value} --provider {request.provider}"
+    try:
+        result = await loop.run_in_executor(None, gw.set_model, value, request.confirm_expensive_model)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Gateway backend
 # ---------------------------------------------------------------------------

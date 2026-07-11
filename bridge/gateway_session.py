@@ -364,6 +364,50 @@ class GatewaySession:
             logger.info("chat_id=%s session.interrupt sent", self.chat_id)
 
     # ------------------------------------------------------------------
+    def model_options(self) -> dict:
+        """Return the gateway's model/provider picker payload."""
+        self.last_active = time.monotonic()
+        params: dict = {
+            "picker_hints": True,
+            "canonical_order": True,
+            "pricing": True,
+            "capabilities": True,
+        }
+        if self.hermes_session_id:
+            params["session_id"] = self.hermes_session_id
+        result = self._call("model.options", params)
+        if isinstance(result, dict) and "error" in result:
+            raise RuntimeError(result["error"].get("message", "model.options failed"))
+        return result.get("result") or {}
+
+    # ------------------------------------------------------------------
+    def current_model(self) -> dict:
+        """Return the currently configured model/provider."""
+        self.last_active = time.monotonic()
+        result = self._call("config.get", {"key": "provider"})
+        if isinstance(result, dict) and "error" in result:
+            raise RuntimeError(result["error"].get("message", "config.get provider failed"))
+        return result.get("result") or {}
+
+    # ------------------------------------------------------------------
+    def set_model(self, value: str, confirm_expensive_model: bool = False) -> dict:
+        """Switch the model for this session (and persist as a session override)."""
+        self.last_active = time.monotonic()
+        sid = self.ensure_session()
+        result = self._call(
+            "config.set",
+            {
+                "key": "model",
+                "value": value,
+                "session_id": sid,
+                "confirm_expensive_model": confirm_expensive_model,
+            },
+        )
+        if isinstance(result, dict) and "error" in result:
+            raise RuntimeError(result["error"].get("message", "config.set model failed"))
+        return result.get("result") or {}
+
+    # ------------------------------------------------------------------
     def get_pending_gate(self) -> Optional[dict]:
         with self._lock:
             return self._pending_gate

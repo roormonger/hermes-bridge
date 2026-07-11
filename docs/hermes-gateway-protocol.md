@@ -54,7 +54,8 @@ sudo.respond            secret.respond          approval.respond
 image.attach            image.attach_bytes      image.detach
 pdf.attach              file.attach
 
-config.set / config.get   commands.catalog     command.resolve
+config.set / config.get   model.options          model.save_key
+model.disconnect          commands.catalog       command.resolve
 command.dispatch         cli.exec
 
 delegation.status       subagent.interrupt      spawn_tree.save/list/load
@@ -225,6 +226,70 @@ Caveats to verify before shipping:
   later we'd want `session.history` too (it has the same normalization, so no
   extra fidelity there — the *raw* schema lives only in `state.db`'s
   `messages` table, see below).
+
+## Model picker — feasible and well-supported
+
+A model picker is very reasonable. The TUI gateway already has first-class
+model switching; the web UI just needs to wrap three JSON-RPC methods.
+
+### Required gateway methods
+
+- **`model.options`** — returns the full picker payload: providers, their
+  `authenticated`/`auth_type`/`key_env` status, available models, pricing, and
+  capabilities. Call with no `session_id` to get the disk-configured catalog,
+  or pass the current chat's `session_id` to layer the live session's model on
+  top. The payload shape is the same one used by the TUI and dashboard
+  `/api/model/options`.
+- **`config.get`** with `key: "provider"` — returns the current
+  `{model, provider, providers}` cheaply (reads `config.yaml` / env vars; no
+  live session required for the model part).
+- **`config.set`** with `key: "model"` — performs the switch. The `value` can be
+  just `"deepseek/deepseek-v4"` or `"deepseek/deepseek-v4 --provider openrouter"`.
+  It calls `agent.switch_model()` in place, emits a fresh `session.info` event,
+  and sets a per-session `model_override` so the choice survives resume/`/new`.
+
+### Suggested implementation path in `hermes-layer`
+
+1. **Backend endpoints** in `bridge/main.py`:
+   - `GET /v1/models` → call `GatewaySession._call("model.options", {})` (or use
+     the existing `/api/ws` passthrough). Use `explicit_only=True` if you only
+     want providers the user has already configured, or
+     `include_unauthenticated=False` for a cleaner list.
+   - `GET /v1/model` → call `config.get {"key": "provider"}` for the current
+     model header.
+   - `POST /v1/model` → accept `{model, provider?}` and call
+     `config.set {"key": "model", "value": "<model> --provider <provider>", "session_id": ...}`
+     on the active chat's `GatewaySession`.
+
+2. **Frontend** in `webui/src/App.tsx` / `thread.tsx`:
+   - Show the current model from the `session.info` event (already emitted by
+     the gateway) or from `GET /v1/model`.
+   - Render a dropdown / combobox from `GET /v1/models`, grouped by provider.
+   - On selection, call `POST /v1/model` and wait for the updated `session.info`
+     event to confirm.
+
+### Caveats
+
+- **Blocked during in-flight turns**: `config.set` returns error `4009`
+  (`"session busy — /interrupt the current turn before switching models"`) if
+  the agent is running. Disable the picker while `isRunning`, or offer to cancel
+  first.
+- **Expensive model confirmation**: `config.set` may return
+  `confirm_required: true` with a `confirm_message` (e.g. for high-cost models).
+  The UI should show a confirmation modal and re-call with
+  `confirm_expensive_model: true` only after the user agrees.
+- **Persistence semantics**: an in-session switch sets a per-session
+  `model_override` (so it survives resume and `/new` in that chat) and does
+  **not** write global `config.yaml` by default. The TUI-style flags
+  `--global` / `--session` can change this; the exact default is computed by
+  `hermes_cli.model_switch.resolve_persist_behavior`.
+- **No session yet**: if the picker is opened before the first message, the
+  bridge's `GatewaySession` may not have a Hermes `session_id`. Either call
+  `GatewaySession.ensure_session()` first, or call `model.options` with no
+  `session_id` and only apply the switch once the session exists.
+
+This is low-hanging fruit for TUI feature parity: the TUI already has the same
+picker, and the gateway exposes everything needed.
 
 ## `state.db` schema (ground truth for message/session persistence)
 

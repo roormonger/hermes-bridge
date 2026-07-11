@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch, streamEvents, type SseEvent } from "./api";
+import { apiFetch, getModels, getCurrentModel, setModel, streamEvents, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
 
 // ---------------------------------------------------------------------------
@@ -131,6 +131,191 @@ const getAppendImages = (msg: AppendMessage): Array<{ data: string; name: string
 // ---------------------------------------------------------------------------
 // Gate dialog
 // ---------------------------------------------------------------------------
+
+type ModelOption = {
+  id: string;
+  name: string;
+  provider: string;
+  providerName: string;
+};
+
+function flattenModelOptions(payload: any): ModelOption[] {
+  const providers = payload?.providers ?? [];
+  const options: ModelOption[] = [];
+  for (const provider of providers) {
+    const models = provider?.models ?? [];
+    for (const model of models) {
+      const id = model?.id || model?.model || String(model);
+      const name = model?.name || model?.id || String(model);
+      options.push({
+        id,
+        name,
+        provider: provider.slug || provider.id || "unknown",
+        providerName: provider.name || provider.slug || "Unknown",
+      });
+    }
+  }
+  return options;
+}
+
+function ModelPicker({
+  chatId,
+  open,
+  onOpenChange,
+  onModelChange,
+}: {
+  chatId: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onModelChange?: (model: string, provider: string) => void;
+}) {
+  const [catalog, setCatalog] = useState<any>(null);
+  const [current, setCurrent] = useState<{ model?: string; provider?: string }>({});
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pending, setPending] = useState<{ model: string; provider: string; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    setError(null);
+    Promise.all([getModels(), chatId ? getCurrentModel(chatId) : getCurrentModel()])
+      .then(([modelsData, currentData]) => {
+        setCatalog(modelsData);
+        setCurrent({
+          model: currentData?.model || "",
+          provider: currentData?.provider || "",
+        });
+      })
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, [open, chatId]);
+
+  const options = useMemo(() => flattenModelOptions(catalog), [catalog]);
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return options;
+    return options.filter(
+      (o) =>
+        o.name.toLowerCase().includes(term) ||
+        o.providerName.toLowerCase().includes(term) ||
+        o.provider.toLowerCase().includes(term)
+    );
+  }, [options, search]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, ModelOption[]>();
+    for (const opt of filtered) {
+      if (!map.has(opt.providerName)) map.set(opt.providerName, []);
+      map.get(opt.providerName)!.push(opt);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filtered]);
+
+  const handleSelect = async (model: string, provider: string) => {
+    if (!chatId) return;
+    setError(null);
+    try {
+      const result = await setModel(chatId, model, provider);
+      if (result?.confirm_required) {
+        setPending({ model, provider, message: result.confirm_message || result.warning || "Confirm model switch?" });
+        setConfirmOpen(true);
+        return;
+      }
+      setCurrent({ model, provider });
+      onModelChange?.(model, provider);
+      onOpenChange(false);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!pending || !chatId) return;
+    try {
+      await setModel(chatId, pending.model, pending.provider, true);
+      setCurrent({ model: pending.model, provider: pending.provider });
+      onModelChange?.(pending.model, pending.provider);
+      setConfirmOpen(false);
+      setPending(null);
+      onOpenChange(false);
+    } catch (e) {
+      setError((e as Error).message);
+      setConfirmOpen(false);
+    }
+  };
+
+  const currentLabel = current.model
+    ? `${current.provider ? `${current.provider} / ` : ""}${current.model}`
+    : "Loading…";
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Switch Model</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">Current: {currentLabel}</p>
+          <Input
+            placeholder="Search models…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="mt-2"
+          />
+          {error && <p className="text-sm text-destructive mt-2">{error}</p>}
+          <div className="flex-1 overflow-y-auto mt-2 space-y-3 pr-1 min-h-[200px]">
+            {loading && <p className="text-sm text-muted-foreground">Loading models…</p>}
+            {!loading && grouped.length === 0 && (
+              <p className="text-sm text-muted-foreground">No models found.</p>
+            )}
+            {grouped.map(([providerName, items]) => (
+              <div key={providerName}>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 sticky top-0 bg-background py-1">
+                  {providerName}
+                </h4>
+                <div className="space-y-1">
+                  {items.map((opt) => (
+                    <button
+                      key={`${opt.provider}:${opt.id}`}
+                      onClick={() => handleSelect(opt.id, opt.provider)}
+                      disabled={!chatId}
+                      className={cn(
+                        "w-full text-left px-2 py-1.5 rounded-md text-sm hover:bg-accent hover:text-accent-foreground transition-colors",
+                        current.model === opt.id && current.provider === opt.provider
+                          ? "bg-accent text-accent-foreground"
+                          : ""
+                      )}
+                    >
+                      {opt.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Model Switch</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap">{pending?.message}</p>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirm}>Switch</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
 
 function GateDialog({
   pendingGate,
@@ -493,6 +678,8 @@ function ChatApp() {
   const [isRunning, setIsRunning] = useState(false);
   const [pendingGate, setPendingGate] = useState<Gate | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [currentModelDisplay, setCurrentModelDisplay] = useState<string>("");
 
   const assistantIdRef = useRef<string | null>(null);
   const assistantContentRef = useRef("");
@@ -537,6 +724,20 @@ function ChatApp() {
     if (currentChatId) loadMessages(currentChatId);
     else setMessages([]);
   }, [currentChatId, loadMessages]);
+
+  useEffect(() => {
+    if (!currentChatId) {
+      setCurrentModelDisplay("");
+      return;
+    }
+    getCurrentModel(currentChatId)
+      .then((data) => {
+        const model = data?.model || "";
+        const provider = data?.provider || "";
+        setCurrentModelDisplay(provider ? `${provider} / ${model}` : model);
+      })
+      .catch(() => setCurrentModelDisplay(""));
+  }, [currentChatId]);
 
   const createChat = async () => {
     try {
@@ -890,6 +1091,18 @@ function ChatApp() {
               {chats.find((c) => c.chat_id === currentChatId)?.title ?? "Hermes Chat"}
             </span>
           </div>
+          {currentChatId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0 text-xs truncate max-w-[140px]"
+              onClick={() => setModelPickerOpen(true)}
+              disabled={isRunning}
+              title="Switch model"
+            >
+              {currentModelDisplay || "Model"}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -900,6 +1113,39 @@ function ChatApp() {
             <Plus className="size-4" />
           </Button>
         </div>
+
+        {/* Desktop header */}
+        <div className="hidden md:flex items-center justify-between border-b px-4 py-2 bg-card shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-semibold text-sm truncate">
+              {chats.find((c) => c.chat_id === currentChatId)?.title ?? "Hermes Chat"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {currentChatId && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs truncate max-w-[240px]"
+                onClick={() => setModelPickerOpen(true)}
+                disabled={isRunning}
+                title="Switch model"
+              >
+                {currentModelDisplay || "Model"}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={createChat}
+              title="New Chat"
+            >
+              <Plus className="size-4" />
+            </Button>
+          </div>
+        </div>
+
         {error && (
           <div className="absolute top-2 right-2 z-50 rounded-md bg-destructive px-4 py-2 text-sm text-destructive-foreground shadow">
             {error}
@@ -909,6 +1155,14 @@ function ChatApp() {
           <Thread />
         </AssistantRuntimeProvider>
         <GateDialog pendingGate={pendingGate} onChoice={handleGateChoice} />
+        <ModelPicker
+          chatId={currentChatId}
+          open={modelPickerOpen}
+          onOpenChange={setModelPickerOpen}
+          onModelChange={(model, provider) =>
+            setCurrentModelDisplay(provider ? `${provider} / ${model}` : model)
+          }
+        />
       </div>
     </div>
   );
