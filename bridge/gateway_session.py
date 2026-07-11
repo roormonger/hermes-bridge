@@ -198,6 +198,17 @@ def _translate_event(frame: dict) -> Optional[dict]:
             "session_id": payload.get("session_id", ""),
         }
 
+    if etype == "session.info":
+        return {
+            "type": "session_info",
+            "model": payload.get("model", ""),
+            "provider": payload.get("provider", ""),
+            "reasoning_effort": payload.get("reasoning_effort", ""),
+            "service_tier": payload.get("service_tier", ""),
+            "fast": payload.get("fast", False),
+            "yolo": payload.get("yolo", False),
+        }
+
     # Ignore internal / UI-only frames
     return None
 
@@ -362,6 +373,22 @@ class GatewaySession:
             logger.warning("chat_id=%s session.interrupt error %s: %s", self.chat_id, code, msg)
         else:
             logger.info("chat_id=%s session.interrupt sent", self.chat_id)
+
+    # ------------------------------------------------------------------
+    def session_undo(self) -> dict:
+        """Undo the last turn in the Hermes session."""
+        self.last_active = time.monotonic()
+        sid = self.hermes_session_id
+        if not sid:
+            return {"status": "no_session"}
+        result = self._call("session.undo", {"session_id": sid})
+        if isinstance(result, dict) and "error" in result:
+            code = result["error"].get("code", 0)
+            msg = result["error"].get("message", "session.undo failed")
+            logger.warning("chat_id=%s session.undo error %s: %s", self.chat_id, code, msg)
+            raise RuntimeError(msg)
+        logger.info("chat_id=%s session.undo sent", self.chat_id)
+        return result.get("result") or {"status": "ok"}
 
     # ------------------------------------------------------------------
     def model_options(self) -> dict:

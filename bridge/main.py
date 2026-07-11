@@ -361,6 +361,20 @@ async def cancel_chat(request: CancelRequest, current_user: dict = Depends(get_c
     return {"status": "interrupted"}
 
 
+@app.post("/v1/chat/undo")
+async def undo_chat(request: CancelRequest, current_user: dict = Depends(get_current_user)) -> dict:
+    """Undo the last user/assistant turn for a chat session."""
+    if _BACKEND != "gateway":
+        raise HTTPException(status_code=400, detail="Undo requires gateway backend")
+    _verify_chat_access(request.chat_id, current_user)
+    loop = asyncio.get_running_loop()
+    gw = sessions.get(request.chat_id)  # type: ignore[attr-defined]
+    if gw is not None:
+        await loop.run_in_executor(None, gw.session_undo)
+    deleted = history.delete_last_turn(request.chat_id, current_user["user_id"])
+    return {"status": "ok", "deleted": deleted}
+
+
 class ModelSwitchRequest(BaseModel):
     chat_id: str
     model: str

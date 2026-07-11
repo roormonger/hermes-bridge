@@ -183,3 +183,36 @@ class ChatHistoryStore:
             (chat_id, *self._user_params(user_id)),
         )
         conn.commit()
+
+    def delete_last_turn(self, chat_id: str, user_id: Optional[str]) -> int:
+        """Delete the last assistant message and the preceding user message.
+
+        Returns the number of rows deleted.
+        """
+        conn = self._conn()
+        rows = conn.execute(
+            "SELECT id, role FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT 2",
+            (chat_id,)
+        ).fetchall()
+        if not rows:
+            return 0
+        # If the latest message is an assistant, delete it and the user before it.
+        # If the latest is a user (e.g. no response yet), delete just that user message.
+        ids_to_delete = []
+        if rows[0]["role"] == "assistant":
+            ids_to_delete.append(rows[0]["id"])
+            if len(rows) > 1 and rows[1]["role"] == "user":
+                ids_to_delete.append(rows[1]["id"])
+        elif rows[0]["role"] == "user":
+            ids_to_delete.append(rows[0]["id"])
+        if ids_to_delete:
+            placeholders = ",".join("?" * len(ids_to_delete))
+            conn.execute(
+                f"""
+                DELETE FROM messages WHERE id IN ({placeholders})
+                  AND chat_id IN (SELECT chat_id FROM chats WHERE {self._user_where(user_id)})
+                """,
+                (*ids_to_delete, *self._user_params(user_id)),
+            )
+            conn.commit()
+        return len(ids_to_delete)

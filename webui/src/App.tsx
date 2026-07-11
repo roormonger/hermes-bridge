@@ -17,9 +17,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
+import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch, getModels, getCurrentModel, setModel, streamEvents, type SseEvent } from "./api";
+import { apiFetch, getModels, getCurrentModel, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
 
 // ---------------------------------------------------------------------------
@@ -680,6 +680,14 @@ function ChatApp() {
   const [error, setError] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [currentModelDisplay, setCurrentModelDisplay] = useState<string>("");
+  const [sessionInfo, setSessionInfo] = useState<{
+    model?: string;
+    provider?: string;
+    reasoning_effort?: string;
+    service_tier?: string;
+    fast?: boolean;
+    yolo?: boolean;
+  }>({});
 
   const assistantIdRef = useRef<string | null>(null);
   const assistantContentRef = useRef("");
@@ -722,8 +730,13 @@ function ChatApp() {
   }, [loadChats]);
 
   useEffect(() => {
-    if (currentChatId) loadMessages(currentChatId);
-    else setMessages([]);
+    if (currentChatId) {
+      loadMessages(currentChatId);
+      setSessionInfo({});
+    } else {
+      setMessages([]);
+      setSessionInfo({});
+    }
   }, [currentChatId, loadMessages]);
 
   useEffect(() => {
@@ -775,6 +788,17 @@ function ChatApp() {
         setCurrentChatId(null);
         setMessages([]);
       }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const handleUndo = async () => {
+    const chatId = currentChatIdRef.current;
+    if (!chatId || isRunning) return;
+    try {
+      await undoLastTurn(chatId);
+      await loadMessages(chatId);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -883,6 +907,19 @@ function ChatApp() {
             method: "PATCH",
             body: JSON.stringify({ title: event.title }),
           }).catch(() => {});
+        }
+      } else if (event.type === "session_info") {
+        setSessionInfo({
+          model: event.model,
+          provider: event.provider,
+          reasoning_effort: event.reasoning_effort,
+          service_tier: event.service_tier,
+          fast: event.fast,
+          yolo: event.yolo,
+        });
+        if (event.model) {
+          const provider = event.provider || "";
+          setCurrentModelDisplay(provider ? `${provider} / ${event.model}` : event.model);
         }
       } else if (event.type === "process_exit" || event.type === "error") {
         setMessages((prev) =>
@@ -1059,6 +1096,22 @@ function ChatApp() {
       ]);
       await streamAssistant(chatId, text);
     },
+    onEdit: async (message: AppendMessage) => {
+      const chatId = currentChatIdRef.current;
+      const sourceId = (message as any).sourceId;
+      if (!chatId || !sourceId) return;
+      const text = getAppendText(message);
+      try {
+        await updateBackendMessage(chatId, sourceId, text);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === sourceId ? { ...m, content: text } : m
+          )
+        );
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
   });
 
   return (
@@ -1106,6 +1159,18 @@ function ChatApp() {
               {currentModelDisplay || "Model"}
             </Button>
           )}
+          {currentChatId && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={handleUndo}
+              disabled={isRunning}
+              title="Undo last turn"
+            >
+              <Undo2 className="size-4" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -1132,9 +1197,43 @@ function ChatApp() {
                 className="text-xs truncate max-w-[240px]"
                 onClick={() => setModelPickerOpen(true)}
                 disabled={isRunning}
-                title="Switch model"
+                title={[
+                  currentModelDisplay || "Model",
+                  sessionInfo.reasoning_effort && `reasoning: ${sessionInfo.reasoning_effort}`,
+                  sessionInfo.service_tier && `tier: ${sessionInfo.service_tier}`,
+                  sessionInfo.fast && "fast",
+                  sessionInfo.yolo && "yolo",
+                ].filter(Boolean).join(" · ")}
               >
                 {currentModelDisplay || "Model"}
+              </Button>
+            )}
+            {currentChatId && sessionInfo.reasoning_effort && (
+              <span className="hidden md:inline-flex items-center rounded-full border border-border/50 bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
+                {sessionInfo.reasoning_effort}
+              </span>
+            )}
+            {currentChatId && sessionInfo.service_tier && (
+              <span className="hidden md:inline-flex items-center rounded-full border border-border/50 bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
+                {sessionInfo.service_tier}
+              </span>
+            )}
+            {currentChatId && (sessionInfo.fast || sessionInfo.yolo) && (
+              <span className="hidden md:inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
+                {sessionInfo.fast && <span>fast</span>}
+                {sessionInfo.yolo && <span>yolo</span>}
+              </span>
+            )}
+            {currentChatId && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0"
+                onClick={handleUndo}
+                disabled={isRunning}
+                title="Undo last turn"
+              >
+                <Undo2 className="size-4" />
               </Button>
             )}
             <Button
