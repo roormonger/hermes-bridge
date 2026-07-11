@@ -83,8 +83,9 @@ const usageDelta = (before: ChatMessage["usage"], after: ChatMessage["usage"]): 
     outputTokens: (a.outputTokens ?? 0) - (b.outputTokens ?? 0),
     cachedInputTokens: (a.cachedInputTokens ?? 0) - (b.cachedInputTokens ?? 0),
     reasoningTokens: (a.reasoningTokens ?? 0) - (b.reasoningTokens ?? 0),
-    totalTokens: (a.totalTokens ?? 0) - (b.totalTokens ?? 0),
+    totalTokens: 0,
   };
+  delta.totalTokens = delta.inputTokens + delta.outputTokens + delta.cachedInputTokens + delta.reasoningTokens;
   if (delta.totalTokens <= 0) return undefined;
   return delta;
 };
@@ -1172,6 +1173,7 @@ function ChatApp() {
     setIsRunning(true);
     setError(null);
     assistantContentRef.current = "";
+    await refreshUsage(chatId);
     usageBeforeRef.current = threadUsageRef.current ?? {};
     const assistantId = await createBackendMessage(chatId, "assistant", "");
     assistantIdRef.current = assistantId;
