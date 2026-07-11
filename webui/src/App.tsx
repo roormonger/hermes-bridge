@@ -890,6 +890,8 @@ function ChatApp() {
     if (!cid) return;
     try {
       const data = await getUsage(cid);
+      // eslint-disable-next-line no-console
+      console.log("[usage] raw", data, "normalized", normalizeUsage(data));
       const { usage, contextWindow } = normalizeUsage(data);
       setThreadUsage(usage);
       threadUsageRef.current = usage;

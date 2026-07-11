@@ -466,8 +466,10 @@ class GatewaySession:
         """Return token usage for the current session, or {} if none exists."""
         sid = self.hermes_session_id
         if not sid:
+            logger.info("chat_id=%s session_usage: no hermes session_id", self.chat_id)
             return {}
         result = self._call("session.usage", {"session_id": sid})
+        logger.info("chat_id=%s session.usage raw=%r", self.chat_id, result)
         if isinstance(result, dict) and "error" in result:
             logger.warning("session.usage error: %s", result["error"].get("message"))
             return {}
@@ -477,8 +479,10 @@ class GatewaySession:
         """Return context breakdown for the current session, or {} if none exists."""
         sid = self.hermes_session_id
         if not sid:
+            logger.info("chat_id=%s session_context_breakdown: no hermes session_id", self.chat_id)
             return {}
         result = self._call("session.context_breakdown", {"session_id": sid})
+        logger.info("chat_id=%s session.context_breakdown raw=%r", self.chat_id, result)
         if isinstance(result, dict) and "error" in result:
             logger.warning("session.context_breakdown error: %s", result["error"].get("message"))
             return {}
