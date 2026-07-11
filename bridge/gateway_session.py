@@ -203,6 +203,8 @@ def _translate_event(frame: dict) -> Optional[dict]:
             "type": "session_info",
             "model": payload.get("model", ""),
             "provider": payload.get("provider", ""),
+            "gateway": payload.get("gateway", ""),
+            "api_provider": payload.get("api_provider", ""),
             "reasoning_effort": payload.get("reasoning_effort", ""),
             "service_tier": payload.get("service_tier", ""),
             "fast": payload.get("fast", False),
@@ -414,7 +416,20 @@ class GatewaySession:
         result = self._call("config.get", {"key": "provider"})
         if isinstance(result, dict) and "error" in result:
             raise RuntimeError(result["error"].get("message", "config.get provider failed"))
-        return result.get("result") or {}
+        data = result.get("result") or {}
+        # Some Hermes configs separate the routing/API gateway from the model vendor.
+        for key in ("gateway", "api_provider"):
+            try:
+                r = self._call("config.get", {"key": key})
+                if isinstance(r, dict) and "result" in r:
+                    value = r["result"]
+                    if isinstance(value, dict):
+                        data.update(value)
+                    elif value:
+                        data[key] = value
+            except RuntimeError:
+                pass
+        return data
 
     # ------------------------------------------------------------------
     def set_model(self, value: str, confirm_expensive_model: bool = False) -> dict:

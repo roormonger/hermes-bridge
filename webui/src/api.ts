@@ -33,7 +33,7 @@ export type SseEvent =
   | { type: "tool_progress"; tool_id: string; name: string; text: string }
   | { type: "tool_complete"; tool_id: string; name: string; summary?: string; duration_s?: number }
   | { type: "session_title"; title: string; session_id?: string }
-  | { type: "session_info"; model?: string; provider?: string; reasoning_effort?: string; service_tier?: string; fast?: boolean; yolo?: boolean }
+  | { type: "session_info"; model?: string; provider?: string; gateway?: string; api_provider?: string; reasoning_effort?: string; service_tier?: string; fast?: boolean; yolo?: boolean }
   | { type: "error"; message: string };
 
 export const getModels = () => apiFetch("/v1/models");

@@ -170,7 +170,7 @@ function ModelPicker({
   onModelChange?: (model: string, provider: string) => void;
 }) {
   const [catalog, setCatalog] = useState<any>(null);
-  const [current, setCurrent] = useState<{ model?: string; provider?: string }>({});
+  const [current, setCurrent] = useState<{ model?: string; provider?: string; gateway?: string; api_provider?: string }>({});
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -187,6 +187,8 @@ function ModelPicker({
         setCurrent({
           model: currentData?.model || "",
           provider: currentData?.provider || "",
+          gateway: currentData?.gateway || "",
+          api_provider: currentData?.api_provider || "",
         });
       })
       .catch((e) => setError((e as Error).message))
@@ -247,8 +249,9 @@ function ModelPicker({
     }
   };
 
+  const currentProviderLabel = current.gateway || current.api_provider || current.provider || "";
   const currentLabel = current.model
-    ? `${current.provider ? `${current.provider} / ` : ""}${current.model}`
+    ? `${currentProviderLabel ? `${currentProviderLabel} / ` : ""}${current.model}`
     : "Loading…";
 
   return (
@@ -259,6 +262,9 @@ function ModelPicker({
             <DialogTitle>Switch Model</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">Current: {currentLabel}</p>
+          <p className="text-xs text-muted-foreground/70">
+            Lists all models available through your configured Hermes providers.
+          </p>
           <Input
             placeholder="Search models…"
             value={search}
@@ -747,7 +753,7 @@ function ChatApp() {
     getCurrentModel(currentChatId)
       .then((data) => {
         const model = data?.model || "";
-        const provider = data?.provider || "";
+        const provider = data?.gateway || data?.api_provider || data?.provider || "";
         setCurrentModelDisplay(provider ? `${provider} / ${model}` : model);
       })
       .catch(() => setCurrentModelDisplay(""));
@@ -911,14 +917,14 @@ function ChatApp() {
       } else if (event.type === "session_info") {
         setSessionInfo({
           model: event.model,
-          provider: event.provider,
+          provider: event.gateway || event.api_provider || event.provider,
           reasoning_effort: event.reasoning_effort,
           service_tier: event.service_tier,
           fast: event.fast,
           yolo: event.yolo,
         });
         if (event.model) {
-          const provider = event.provider || "";
+          const provider = event.gateway || event.api_provider || event.provider || "";
           setCurrentModelDisplay(provider ? `${provider} / ${event.model}` : event.model);
         }
       } else if (event.type === "process_exit" || event.type === "error") {
