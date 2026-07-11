@@ -137,6 +137,7 @@ type ModelOption = {
   name: string;
   provider: string;
   providerName: string;
+  isProfile?: boolean;
 };
 
 function flattenModelOptions(payload: any): ModelOption[] {
@@ -158,6 +159,8 @@ function flattenModelOptions(payload: any): ModelOption[] {
   return options;
 }
 
+const PROFILE_PROVIDER_NAME = "Hermes Profiles";
+
 function flattenAnalyticsModels(payload: any): ModelOption[] {
   const models = payload?.models ?? [];
   const options: ModelOption[] = [];
@@ -169,10 +172,27 @@ function flattenAnalyticsModels(payload: any): ModelOption[] {
       id,
       name: id,
       provider,
-      providerName: provider || "Your models",
+      providerName: PROFILE_PROVIDER_NAME,
+      isProfile: true,
     });
   }
   return options;
+}
+
+const EXPANDED_STORAGE_KEY = "hermes-chat:expanded-providers";
+
+function loadExpanded(): Set<string> {
+  try {
+    const raw = localStorage.getItem(EXPANDED_STORAGE_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set();
+}
+
+function saveExpanded(expanded: Set<string>) {
+  try {
+    localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(Array.from(expanded)));
+  } catch {}
 }
 
 function ModelPicker({
@@ -184,17 +204,17 @@ function ModelPicker({
   chatId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onModelChange?: (model: string, provider: string) => void;
+  onModelChange?: (model: string, provider: string, isProfile: boolean) => void;
 }) {
   const [catalog, setCatalog] = useState<any>(null);
   const [analytics, setAnalytics] = useState<any>(null);
-  const [showCatalog, setShowCatalog] = useState(false);
   const [current, setCurrent] = useState<{ model?: string; provider?: string; gateway?: string; api_provider?: string }>({});
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [pending, setPending] = useState<{ model: string; provider: string; message: string } | null>(null);
+  const [pending, setPending] = useState<{ model: string; provider: string; isProfile: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => loadExpanded());
 
   useEffect(() => {
     if (!open) return;
@@ -202,24 +222,30 @@ function ModelPicker({
     setError(null);
     setCatalog(null);
     setAnalytics(null);
-    setShowCatalog(false);
     Promise.all([
       getAnalyticsModels().catch(() => null),
+      getModels().catch(() => null),
       chatId ? getCurrentModel(chatId) : getCurrentModel(),
     ])
-      .then(([analyticsData, currentData]) => {
+      .then(([analyticsData, catalogData, currentData]) => {
+        const model = currentData?.model || "";
+        const provider = currentData?.provider || "";
         setCurrent({
-          model: currentData?.model || "",
-          provider: currentData?.provider || "",
+          model,
+          provider,
           gateway: currentData?.gateway || "",
           api_provider: currentData?.api_provider || "",
         });
-        if (analyticsData?.models && analyticsData.models.length > 0) {
-          setAnalytics(analyticsData);
-        } else {
-          // No analytics available; fall back to the full model catalog.
-          setShowCatalog(true);
-          return getModels().then(setCatalog);
+        setAnalytics(analyticsData);
+        setCatalog(catalogData);
+        // If the active model is one of our profiles, reflect that in the top bar.
+        if (model && analyticsData?.models) {
+          const match = analyticsData.models.find(
+            (m: any) => m.model === model && (m.provider || "") === provider
+          );
+          if (match) {
+            onModelChange?.(model, provider, true);
+          }
         }
       })
       .catch((e) => setError((e as Error).message))
@@ -227,11 +253,11 @@ function ModelPicker({
   }, [open, chatId]);
 
   const options = useMemo(() => {
-    if (!showCatalog && analytics?.models?.length) {
-      return flattenAnalyticsModels(analytics);
-    }
-    return flattenModelOptions(catalog);
-  }, [analytics, catalog, showCatalog]);
+    const profiles = flattenAnalyticsModels(analytics);
+    const catalogOpts = flattenModelOptions(catalog);
+    return [...profiles, ...catalogOpts];
+  }, [analytics, catalog]);
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return options;
@@ -249,21 +275,39 @@ function ModelPicker({
       if (!map.has(opt.providerName)) map.set(opt.providerName, []);
       map.get(opt.providerName)!.push(opt);
     }
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    const entries = Array.from(map.entries());
+    // Keep Hermes Profiles at the top; sort the rest alphabetically.
+    entries.sort((a, b) => {
+      const aProfile = a[0] === PROFILE_PROVIDER_NAME ? -1 : 0;
+      const bProfile = b[0] === PROFILE_PROVIDER_NAME ? -1 : 0;
+      if (aProfile !== bProfile) return aProfile - bProfile;
+      return a[0].localeCompare(b[0]);
+    });
+    return entries;
   }, [filtered]);
 
-  const handleSelect = async (model: string, provider: string) => {
+  const toggleProvider = (providerName: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(providerName)) next.delete(providerName);
+      else next.add(providerName);
+      saveExpanded(next);
+      return next;
+    });
+  };
+
+  const handleSelect = async (opt: ModelOption) => {
     if (!chatId) return;
     setError(null);
     try {
-      const result = await setModel(chatId, model, provider);
+      const result = await setModel(chatId, opt.id, opt.provider);
       if (result?.confirm_required) {
-        setPending({ model, provider, message: result.confirm_message || result.warning || "Confirm model switch?" });
+        setPending({ model: opt.id, provider: opt.provider, isProfile: !!opt.isProfile, message: result.confirm_message || result.warning || "Confirm model switch?" });
         setConfirmOpen(true);
         return;
       }
-      setCurrent({ model, provider });
-      onModelChange?.(model, provider);
+      setCurrent({ model: opt.id, provider: opt.provider });
+      onModelChange?.(opt.id, opt.provider, !!opt.isProfile);
       onOpenChange(false);
     } catch (e) {
       setError((e as Error).message);
@@ -275,7 +319,7 @@ function ModelPicker({
     try {
       await setModel(chatId, pending.model, pending.provider, true);
       setCurrent({ model: pending.model, provider: pending.provider });
-      onModelChange?.(pending.model, pending.provider);
+      onModelChange?.(pending.model, pending.provider, pending.isProfile);
       setConfirmOpen(false);
       setPending(null);
       onOpenChange(false);
@@ -298,35 +342,9 @@ function ModelPicker({
             <DialogTitle>Switch Model</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">Current: {currentLabel}</p>
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground/70">
-              {showCatalog
-                ? "Showing all models available through your configured providers."
-                : "Showing your recently-used Hermes models."}
-            </p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-auto px-2 py-1 text-xs"
-              onClick={() => {
-                if (!showCatalog) {
-                  setShowCatalog(true);
-                  if (!catalog) {
-                    setLoading(true);
-                    getModels()
-                      .then(setCatalog)
-                      .catch((e) => setError((e as Error).message))
-                      .finally(() => setLoading(false));
-                  }
-                } else {
-                  setShowCatalog(false);
-                }
-              }}
-            >
-              {showCatalog ? "Your models" : "All models"}
-            </Button>
-          </div>
+          <p className="text-xs text-muted-foreground/70">
+            Hermes Profiles are shown at the top. Expand any provider to see its models.
+          </p>
           <Input
             placeholder="Search models…"
             value={search}
@@ -334,35 +352,45 @@ function ModelPicker({
             className="mt-2"
           />
           {error && <p className="text-sm text-destructive mt-2">{error}</p>}
-          <div className="flex-1 overflow-y-auto mt-2 space-y-3 pr-1 min-h-[200px]">
+          <div className="flex-1 overflow-y-auto mt-2 space-y-2 pr-1 min-h-[200px]">
             {loading && <p className="text-sm text-muted-foreground">Loading models…</p>}
             {!loading && grouped.length === 0 && (
               <p className="text-sm text-muted-foreground">No models found.</p>
             )}
-            {grouped.map(([providerName, items]) => (
-              <div key={providerName}>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 sticky top-0 bg-background py-1">
-                  {providerName}
-                </h4>
-                <div className="space-y-1">
-                  {items.map((opt) => (
-                    <button
-                      key={`${opt.provider}:${opt.id}`}
-                      onClick={() => handleSelect(opt.id, opt.provider)}
-                      disabled={!chatId}
-                      className={cn(
-                        "w-full text-left px-2 py-1.5 rounded-md text-sm hover:bg-accent hover:text-accent-foreground transition-colors",
-                        current.model === opt.id && current.provider === opt.provider
-                          ? "bg-accent text-accent-foreground"
-                          : ""
-                      )}
-                    >
-                      {opt.name}
-                    </button>
-                  ))}
+            {grouped.map(([providerName, items]) => {
+              const isExpanded = expanded.has(providerName);
+              return (
+                <div key={providerName} className="rounded-md border border-border overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggleProvider(providerName)}
+                    className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide bg-muted/40 hover:bg-muted/60 transition-colors"
+                  >
+                    <span>{providerName}</span>
+                    <span className="text-muted-foreground/70">{isExpanded ? "▼" : "▶"}</span>
+                  </button>
+                  {isExpanded && (
+                    <div className="p-2 space-y-1 bg-background">
+                      {items.map((opt) => (
+                        <button
+                          key={`${opt.provider}:${opt.id}`}
+                          onClick={() => handleSelect(opt)}
+                          disabled={!chatId}
+                          className={cn(
+                            "w-full text-left px-2 py-1.5 rounded-md text-sm hover:bg-accent hover:text-accent-foreground transition-colors",
+                            current.model === opt.id && current.provider === opt.provider
+                              ? "bg-accent text-accent-foreground"
+                              : ""
+                          )}
+                        >
+                          {opt.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </DialogContent>
       </Dialog>
@@ -748,6 +776,7 @@ function ChatApp() {
   const [error, setError] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [currentModelDisplay, setCurrentModelDisplay] = useState<string>("");
+  const [profileModels, setProfileModels] = useState<Set<string>>(new Set());
   const [sessionInfo, setSessionInfo] = useState<{
     model?: string;
     provider?: string;
@@ -812,11 +841,19 @@ function ChatApp() {
       setCurrentModelDisplay("");
       return;
     }
-    getCurrentModel(currentChatId)
-      .then((data) => {
+    Promise.all([getCurrentModel(currentChatId), getAnalyticsModels().catch(() => null)])
+      .then(([data, analyticsData]) => {
         const model = data?.model || "";
         const provider = data?.gateway || data?.api_provider || data?.provider || "";
-        setCurrentModelDisplay(provider ? `${provider} / ${model}` : model);
+        const match = analyticsData?.models?.find(
+          (m: any) => m.model === model && (m.provider || "") === (data?.provider || "")
+        );
+        if (match) {
+          setProfileModels((prev) => new Set(prev).add(model));
+          setCurrentModelDisplay(`profile/${provider}/${model}`);
+        } else {
+          setCurrentModelDisplay(provider ? `${provider} / ${model}` : model);
+        }
       })
       .catch(() => setCurrentModelDisplay(""));
   }, [currentChatId]);
@@ -989,12 +1026,16 @@ function ChatApp() {
           const provider = event.gateway || event.api_provider || event.provider || "";
           const providerLower = provider.toLowerCase();
           const modelLower = event.model.toLowerCase();
-          // Hermes sometimes reports the model vendor ("deepseek") as provider
-          // while the real gateway ("openrouter") lives elsewhere. Avoid
-          // overwriting the top-bar gateway label with a vendor prefix.
-          const isVendorOnly = providerLower && modelLower.startsWith(`${providerLower}/`);
-          if (!isVendorOnly) {
-            setCurrentModelDisplay(provider ? `${provider} / ${event.model}` : event.model);
+          if (profileModels.has(event.model)) {
+            setCurrentModelDisplay(`profile/${provider}/${event.model}`);
+          } else {
+            // Hermes sometimes reports the model vendor ("deepseek") as provider
+            // while the real gateway ("openrouter") lives elsewhere. Avoid
+            // overwriting the top-bar gateway label with a vendor prefix.
+            const isVendorOnly = providerLower && modelLower.startsWith(`${providerLower}/`);
+            if (!isVendorOnly) {
+              setCurrentModelDisplay(provider ? `${provider} / ${event.model}` : event.model);
+            }
           }
         }
       } else if (event.type === "process_exit" || event.type === "error") {
@@ -1339,9 +1380,14 @@ function ChatApp() {
           chatId={currentChatId}
           open={modelPickerOpen}
           onOpenChange={setModelPickerOpen}
-          onModelChange={(model, provider) =>
-            setCurrentModelDisplay(provider ? `${provider} / ${model}` : model)
-          }
+          onModelChange={(model, provider, isProfile) => {
+            if (isProfile) {
+              setProfileModels((prev) => new Set(prev).add(model));
+              setCurrentModelDisplay(`profile/${provider}/${model}`);
+            } else {
+              setCurrentModelDisplay(provider ? `${provider} / ${model}` : model);
+            }
+          }}
         />
       </div>
     </div>
