@@ -205,7 +205,7 @@ export const Thread: FC = () => {
 
   return (
     <ThreadPrimitive.Root
-      className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
+      className="aui-root aui-thread-root bg-background @container flex flex-1 flex-col"
       style={{
         ["--thread-max-width" as string]: "44rem",
         ["--composer-bg" as string]:
@@ -231,7 +231,7 @@ export const Thread: FC = () => {
 
           <div
             data-slot="aui_message-group"
-            className="mb-24 flex flex-col gap-y-6 empty:hidden"
+            className="mb-14 flex flex-col gap-y-6 empty:hidden"
           >
             <ThreadPrimitive.Messages>
               {() => <ThreadMessage />}
