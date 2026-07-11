@@ -709,6 +709,7 @@ function ChatApp() {
           content: m.content,
           images: m.images?.length ? m.images : undefined,
           status: m.role === "assistant" ? ("complete" as const) : undefined,
+          createdAt: m.created_at ? m.created_at * 1000 : Date.now(),
         }))
       );
     } catch (e) {
@@ -1045,6 +1046,7 @@ function ChatApp() {
       }
 
       await createBackendMessage(chatId, "user", text, images.map((img) => img.data));
+      const now = Date.now();
       setMessages((prev) => [
         ...prev,
         {
@@ -1052,6 +1054,7 @@ function ChatApp() {
           role: "user",
           content: text,
           images: images.map((img) => img.data),
+          createdAt: now,
         },
       ]);
       await streamAssistant(chatId, text);
