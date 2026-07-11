@@ -7,8 +7,12 @@ inside the Hermes dashboard server process and manipulate the Hermes Chat daemon
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 import traceback
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +30,37 @@ _ERROR_LOG = _PLUGIN_ROOT / "run" / "dashboard-api-error.log"
 from bridge.config import auth_secret, load_config, update_config
 from bridge.daemon import LOG_FILE, is_running, logs, restart, start, status, stop
 from bridge.dependencies import check_dependencies, install_dependencies
+
+_DEFAULT_HERMES_DASHBOARD_URL = "http://127.0.0.1:9119"
+
+
+def _hermes_dashboard_url() -> dict:
+    """Return the resolved Hermes dashboard URL and its source."""
+    cfg = load_config()
+    if cfg.hermes_dashboard_url:
+        return {"url": cfg.hermes_dashboard_url, "source": "config"}
+    env_url = os.environ.get("HERMES_DASHBOARD_URL")
+    if env_url:
+        return {"url": env_url, "source": "HERMES_DASHBOARD_URL"}
+    env_port = os.environ.get("HERMES_DASHBOARD_PORT")
+    if env_port:
+        return {"url": f"http://127.0.0.1:{env_port}", "source": "HERMES_DASHBOARD_PORT"}
+    return {"url": _DEFAULT_HERMES_DASHBOARD_URL, "source": "default"}
+
+
+def _verify_dashboard_url(url: str) -> dict:
+    """Probe the dashboard analytics endpoint and return success/failure info."""
+    probe = url.rstrip("/") + "/api/analytics/models"
+    try:
+        req = urllib.request.Request(probe, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            models = data.get("models") or []
+            return {"ok": True, "model_count": len(models), "url": url}
+    except urllib.error.HTTPError as exc:
+        return {"ok": False, "error": f"HTTP {exc.code}", "url": url}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "url": url}
 
 router = APIRouter()
 
@@ -46,6 +81,7 @@ class ConfigUpdate(BaseModel):
     log_level: Optional[str] = None
     debug: Optional[bool] = None
     auto_start: Optional[bool] = None
+    hermes_dashboard_url: Optional[str] = None
     restart: bool = False
 
 
@@ -130,6 +166,31 @@ async def get_deps() -> dict:
     try:
         missing = check_dependencies()
         return {"missing": missing, "ok": not missing}
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+@router.get("/dashboard-url")
+async def get_dashboard_url() -> dict:
+    """Return the auto-discovered Hermes dashboard URL and a verification result."""
+    try:
+        info = _hermes_dashboard_url()
+        info["verify"] = _verify_dashboard_url(info["url"])
+        return info
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+@router.post("/dashboard-url/verify")
+async def post_verify_dashboard_url(body: dict) -> dict:
+    """Verify an arbitrary Hermes dashboard URL."""
+    try:
+        url = body.get("url", "")
+        if not url:
+            raise HTTPException(status_code=400, detail="url is required")
+        return _verify_dashboard_url(url)
+    except HTTPException:
+        raise
     except Exception as exc:
         _handle_exc(exc)
 

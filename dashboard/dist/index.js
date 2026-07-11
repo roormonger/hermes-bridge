@@ -72,6 +72,10 @@
     const [settingsHost, setSettingsHost] = useState("");
     const [settingsPort, setSettingsPort] = useState("");
     const [pendingRestart, setPendingRestart] = useState(false);
+    const [dashboardUrl, setDashboardUrl] = useState("");
+    const [dashboardUrlSource, setDashboardUrlSource] = useState("");
+    const [dashboardUrlVerify, setDashboardUrlVerify] = useState(null);
+    const [dashboardUrlLoading, setDashboardUrlLoading] = useState(false);
     const logsPausedRef = useRef(false);
     const logsBoxRef = useRef(null);
 
@@ -116,14 +120,26 @@
       }
     }, []);
 
+    const loadDashboardUrl = useCallback(async () => {
+      try {
+        const data = await fetchJSON("/dashboard-url");
+        setDashboardUrl(data.url || "");
+        setDashboardUrlSource(data.source || "");
+        setDashboardUrlVerify(data.verify || null);
+      } catch (err) {
+        setDashboardUrlVerify({ ok: false, error: String(err) });
+      }
+    }, []);
+
     useEffect(() => {
       loadStatus();
       loadDeps();
       loadLogs();
       loadUsers();
+      loadDashboardUrl();
       const id = setInterval(() => { loadStatus(); loadLogs(); }, 5000);
       return () => clearInterval(id);
-    }, [loadStatus, loadDeps, loadLogs, loadUsers]);
+    }, [loadStatus, loadDeps, loadLogs, loadUsers, loadDashboardUrl]);
 
     useEffect(() => {
       if (!logsPaused && logsBoxRef.current) {
@@ -220,6 +236,59 @@
       );
       setNewUsername("");
       setNewPassword("");
+    };
+
+    const onVerifyDashboardUrl = async () => {
+      setDashboardUrlLoading(true);
+      setError(null);
+      try {
+        const data = await fetchJSON("/dashboard-url/verify", {
+          method: "POST",
+          body: JSON.stringify({ url: dashboardUrl.trim() }),
+        });
+        setDashboardUrlVerify(data);
+      } catch (err) {
+        setDashboardUrlVerify({ ok: false, error: String(err) });
+      } finally {
+        setDashboardUrlLoading(false);
+      }
+    };
+
+    const onSaveDashboardUrl = async (e) => {
+      e.preventDefault();
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        await fetchJSON("/config", {
+          method: "POST",
+          body: JSON.stringify({ hermes_dashboard_url: dashboardUrl.trim() }),
+        });
+        setNotice("Dashboard URL saved. Restart the daemon for changes to take effect.");
+        await loadDashboardUrl();
+      } catch (err) {
+        setError("Save dashboard URL failed: " + String(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const onResetDashboardUrl = async () => {
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        await fetchJSON("/config", {
+          method: "POST",
+          body: JSON.stringify({ hermes_dashboard_url: "" }),
+        });
+        setNotice("Dashboard URL override cleared. Auto-discovery will be used.");
+        await loadDashboardUrl();
+      } catch (err) {
+        setError("Reset dashboard URL failed: " + String(err));
+      } finally {
+        setLoading(false);
+      }
     };
 
     const onDeleteUser = (userId) =>
@@ -326,6 +395,43 @@
               })
             ),
             h(Button, { type: "submit", disabled: loading }, "Save")
+          )
+        )
+      ),
+      h(Card, null,
+        h(CardHeader, null,
+          h("div", { className: "flex items-center justify-between" },
+            h(CardTitle, null, "Hermes Dashboard URL"),
+            dashboardUrlSource && h("span", { className: "text-xs text-muted-foreground" }, "Source: " + dashboardUrlSource)
+          ),
+          h("p", { className: "text-sm text-muted-foreground" }, "Used to show your recently-used Hermes models in the chat model picker. Leave empty to auto-detect.")
+        ),
+        h(CardContent, { className: "space-y-3" },
+          h("form", { onSubmit: onSaveDashboardUrl, className: "flex flex-col gap-3" },
+            h("input", {
+              type: "text",
+              value: dashboardUrl,
+              onChange: (e) => setDashboardUrl(e.target.value),
+              placeholder: "http://127.0.0.1:9119",
+              className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
+            }),
+            h("div", { className: "flex flex-wrap gap-2" },
+              h(Button, { type: "submit", disabled: loading, size: "sm" }, "Save Override"),
+              h(Button, { type: "button", variant: "outline", size: "sm", onClick: onVerifyDashboardUrl, disabled: dashboardUrlLoading || !dashboardUrl.trim() }, dashboardUrlLoading ? "Verifying..." : "Verify"),
+              h(Button, { type: "button", variant: "ghost", size: "sm", onClick: onResetDashboardUrl, disabled: loading }, "Use Auto-Detect")
+            )
+          ),
+          dashboardUrlVerify && (
+            dashboardUrlVerify.ok
+              ? h("div", { className: "rounded-md border border-green-400 bg-green-50 dark:bg-green-950 dark:border-green-700 p-3 text-sm" }, "✓ Reached dashboard (" + (dashboardUrlVerify.model_count ?? "?") + " models found).")
+              : h("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700 p-3 text-sm" },
+                  h("div", { className: "font-semibold text-yellow-800 dark:text-yellow-200" }, "⚠ Could not verify dashboard URL"),
+                  h("p", { className: "text-yellow-700 dark:text-yellow-300 text-xs mt-1" }, dashboardUrlVerify.error || "Unknown error"),
+                  h("p", { className: "text-yellow-600 dark:text-yellow-400 text-xs mt-1" }, "The chat model picker will fall back to the full model catalog until this is fixed.")
+                )
+          ),
+          !dashboardUrlVerify && !dashboardUrl && h("div", { className: "rounded-md border border-orange-400 bg-orange-50 dark:bg-orange-950 dark:border-orange-700 p-3 text-sm" },
+            h("span", { className: "text-orange-800 dark:text-orange-200" }, "⚠ No dashboard URL detected. Profile-style model switching in chat will not work until the Hermes dashboard URL is set or auto-detected.")
           )
         )
       ),
