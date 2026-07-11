@@ -330,8 +330,16 @@ function ModelPicker({
   };
 
   const currentProviderLabel = current.gateway || current.api_provider || current.provider || "";
+  const isProfileCurrent = useMemo(() => {
+    if (!current.model || !analytics?.models) return false;
+    return analytics.models.some(
+      (m: any) => m.model === current.model && (m.provider || "") === current.provider
+    );
+  }, [analytics, current]);
   const currentLabel = current.model
-    ? `${currentProviderLabel ? `${currentProviderLabel} / ` : ""}${current.model}`
+    ? isProfileCurrent
+      ? `hermes/profile/${current.model}`
+      : `${currentProviderLabel ? `${currentProviderLabel} / ` : ""}${current.model}`
     : "Loading…";
 
   return (
@@ -850,7 +858,7 @@ function ChatApp() {
         );
         if (match) {
           setProfileModels((prev) => new Set(prev).add(model));
-          setCurrentModelDisplay(`profile/${provider}/${model}`);
+          setCurrentModelDisplay(`hermes/profile/${model}`);
         } else {
           setCurrentModelDisplay(provider ? `${provider} / ${model}` : model);
         }
@@ -1027,7 +1035,7 @@ function ChatApp() {
           const providerLower = provider.toLowerCase();
           const modelLower = event.model.toLowerCase();
           if (profileModels.has(event.model)) {
-            setCurrentModelDisplay(`profile/${provider}/${event.model}`);
+            setCurrentModelDisplay(`hermes/profile/${event.model}`);
           } else {
             // Hermes sometimes reports the model vendor ("deepseek") as provider
             // while the real gateway ("openrouter") lives elsewhere. Avoid
@@ -1383,7 +1391,7 @@ function ChatApp() {
           onModelChange={(model, provider, isProfile) => {
             if (isProfile) {
               setProfileModels((prev) => new Set(prev).add(model));
-              setCurrentModelDisplay(`profile/${provider}/${model}`);
+              setCurrentModelDisplay(`hermes/profile/${model}`);
             } else {
               setCurrentModelDisplay(provider ? `${provider} / ${model}` : model);
             }
