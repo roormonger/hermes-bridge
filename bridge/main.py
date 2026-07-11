@@ -28,6 +28,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .analytics import get_models_analytics as _get_models_analytics_db
 from .chat_history import ChatHistoryStore
 from .config import _plugin_dir, auth_secret, load_config
 from .database import ChatSessionStore
@@ -425,7 +426,17 @@ async def list_models(current_user: dict = Depends(get_current_user)) -> dict:
 
 @app.get("/v1/analytics/models")
 async def list_analytics_models(current_user: dict = Depends(get_current_user)) -> dict:
-    """Proxy the Hermes dashboard analytics models list (recently-used / saved profiles)."""
+    """Return Hermes dashboard analytics models (recently-used / saved profiles).
+
+    Tries to read directly from the Hermes session database so the request
+    works even when the dashboard requires authentication. Falls back to proxying
+    the dashboard HTTP endpoint only when hermes_state is not available.
+    """
+    try:
+        return _get_models_analytics_db(days=30)
+    except RuntimeError as exc:
+        # hermes_state unavailable; fall back to dashboard HTTP proxy.
+        logging.getLogger(__name__).warning("Direct analytics DB read failed: %s", exc)
     url = _hermes_dashboard_url().rstrip("/") + "/api/analytics/models"
     try:
         req = urllib.request.Request(url, headers={"Accept": "application/json"})

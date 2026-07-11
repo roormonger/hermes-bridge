@@ -27,6 +27,7 @@ if str(_PLUGIN_ROOT) not in sys.path:
 
 _ERROR_LOG = _PLUGIN_ROOT / "run" / "dashboard-api-error.log"
 
+from bridge.analytics import get_models_analytics as _get_models_analytics
 from bridge.config import auth_secret, load_config, update_config
 from bridge.daemon import LOG_FILE, is_running, logs, restart, start, status, stop
 from bridge.dependencies import check_dependencies, install_dependencies
@@ -49,16 +50,16 @@ def _hermes_dashboard_url() -> dict:
 
 
 def _verify_dashboard_url(url: str) -> dict:
-    """Probe the dashboard analytics endpoint and return success/failure info."""
-    probe = url.rstrip("/") + "/api/analytics/models"
+    """Verify by reading the Hermes session DB directly.
+
+    We avoid making an HTTP request to the dashboard because the dashboard
+    routes require authentication. The bridge and this plugin run on the same
+    host as Hermes, so we can read the underlying SQLite database directly.
+    """
     try:
-        req = urllib.request.Request(probe, headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            models = data.get("models") or []
-            return {"ok": True, "model_count": len(models), "url": url}
-    except urllib.error.HTTPError as exc:
-        return {"ok": False, "error": f"HTTP {exc.code}", "url": url}
+        data = _get_models_analytics(days=30)
+        models = data.get("models") or []
+        return {"ok": True, "model_count": len(models), "url": url}
     except Exception as exc:
         return {"ok": False, "error": str(exc), "url": url}
 
