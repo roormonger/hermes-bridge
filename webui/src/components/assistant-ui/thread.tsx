@@ -8,6 +8,8 @@ import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DotMatrix } from "@/components/dot-matrix";
+import { ContextDisplay } from "@/components/context-display";
+import type { ThreadTokenUsage } from "@assistant-ui/react-ai-sdk";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -201,7 +203,11 @@ const isNewChatView = (s: AssistantState) =>
   s.thread.messages.length === 0 &&
   (!s.thread.isLoading || s.threads.isLoading);
 
-export const Thread: FC<{ onUndo?: () => void }> = ({ onUndo }) => {
+export const Thread: FC<{
+  onUndo?: () => void;
+  contextWindow?: number;
+  threadUsage?: ThreadTokenUsage;
+}> = ({ onUndo, contextWindow, threadUsage }) => {
   const isEmpty = useAuiState(isNewChatView);
 
   return (
@@ -247,7 +253,7 @@ export const Thread: FC<{ onUndo?: () => void }> = ({ onUndo }) => {
             )}
           >
             <ThreadScrollToBottom />
-            <Composer onUndo={onUndo} />
+            <Composer onUndo={onUndo} contextWindow={contextWindow} threadUsage={threadUsage} />
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
@@ -317,7 +323,11 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
-const Composer: FC<{ onUndo?: () => void }> = ({ onUndo }) => {
+const Composer: FC<{
+  onUndo?: () => void;
+  contextWindow?: number;
+  threadUsage?: ThreadTokenUsage;
+}> = ({ onUndo, contextWindow, threadUsage }) => {
   const composerRuntime = useComposerRuntime();
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -342,14 +352,18 @@ const Composer: FC<{ onUndo?: () => void }> = ({ onUndo }) => {
             aria-label="Message input"
             onKeyDown={handleKeyDown}
           />
-          <ComposerAction onUndo={onUndo} />
+          <ComposerAction onUndo={onUndo} contextWindow={contextWindow} threadUsage={threadUsage} />
         </div>
       </ComposerPrimitive.AttachmentDropzone>
     </ComposerPrimitive.Root>
   );
 };
 
-const ComposerAction: FC<{ onUndo?: () => void }> = ({ onUndo }) => {
+const ComposerAction: FC<{
+  onUndo?: () => void;
+  contextWindow?: number;
+  threadUsage?: ThreadTokenUsage;
+}> = ({ onUndo, contextWindow, threadUsage }) => {
   const canUndo = useAuiState((s) => s.thread.messages.length > 0);
   const isRunning = useAuiState((s) => s.thread.isRunning);
 
@@ -432,6 +446,13 @@ const ComposerAction: FC<{ onUndo?: () => void }> = ({ onUndo }) => {
             </Button>
           </ComposerPrimitive.Cancel>
         </AuiIf>
+        {contextWindow && contextWindow > 0 && (
+          <ContextDisplay.Ring
+            modelContextWindow={contextWindow}
+            usage={threadUsage}
+            side="top"
+          />
+        )}
       </div>
     </div>
   );
@@ -530,6 +551,7 @@ const AssistantMessage: FC = () => {
   const isRunning = useAuiState((s) => s.message.status?.type === "running");
   const toolSteps: ToolStep[] = meta.toolSteps ?? [];
   const createdAt: number = meta.createdAt ?? Date.now();
+  const messageUsage: { totalTokens?: number } | undefined = meta.usage;
 
   return (
     <MessagePrimitive.Root
@@ -552,6 +574,11 @@ const AssistantMessage: FC = () => {
         </div>
         <span className="text-sm font-semibold text-foreground/90">Hermes</span>
         <span className="text-xs text-muted-foreground/60">{formatTime(createdAt)}</span>
+        {messageUsage && messageUsage.totalTokens != null && (
+          <span className="text-xs text-muted-foreground/60 tabular-nums">
+            · {messageUsage.totalTokens.toLocaleString()} tokens
+          </span>
+        )}
       </div>
 
       <div

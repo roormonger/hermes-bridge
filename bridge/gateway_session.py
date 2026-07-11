@@ -216,6 +216,12 @@ def _translate_event(frame: dict) -> Optional[dict]:
             "service_tier": payload.get("service_tier", ""),
             "fast": payload.get("fast", False),
             "yolo": payload.get("yolo", False),
+            "context_window": payload.get("context_window") or payload.get("context_window_tokens") or 0,
+            "input_tokens": payload.get("input_tokens") or payload.get("prompt_tokens") or 0,
+            "output_tokens": payload.get("output_tokens") or payload.get("completion_tokens") or 0,
+            "cache_read_tokens": payload.get("cache_read_tokens") or payload.get("cached_tokens") or 0,
+            "reasoning_tokens": payload.get("reasoning_tokens") or 0,
+            "total_tokens": payload.get("total_tokens") or 0,
         }
 
     # Ignore internal / UI-only frames

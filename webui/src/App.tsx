@@ -57,6 +57,13 @@ type ChatMessage = {
   gate?: Gate | null;
   toolSteps?: ToolStep[];
   createdAt?: number;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    cachedInputTokens?: number;
+    reasoningTokens?: number;
+    totalTokens?: number;
+  };
 };
 
 const generateId = () => {
@@ -65,6 +72,21 @@ const generateId = () => {
     const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+};
+
+const usageDelta = (before: ChatMessage["usage"], after: ChatMessage["usage"]): ChatMessage["usage"] | undefined => {
+  if (!after) return undefined;
+  const b = before ?? {};
+  const a = after ?? {};
+  const delta = {
+    inputTokens: (a.inputTokens ?? 0) - (b.inputTokens ?? 0),
+    outputTokens: (a.outputTokens ?? 0) - (b.outputTokens ?? 0),
+    cachedInputTokens: (a.cachedInputTokens ?? 0) - (b.cachedInputTokens ?? 0),
+    reasoningTokens: (a.reasoningTokens ?? 0) - (b.reasoningTokens ?? 0),
+    totalTokens: (a.totalTokens ?? 0) - (b.totalTokens ?? 0),
+  };
+  if (delta.totalTokens <= 0) return undefined;
+  return delta;
 };
 
 const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
@@ -85,6 +107,7 @@ const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
       ...(msg.gate ? { gate: msg.gate } : {}),
       toolSteps: msg.toolSteps ?? [],
       createdAt: msg.createdAt ?? Date.now(),
+      ...(msg.usage ? { usage: msg.usage } : {}),
     },
   },
 });
@@ -797,11 +820,21 @@ function ChatApp() {
     fast?: boolean;
     yolo?: boolean;
   }>({});
+  const [contextWindow, setContextWindow] = useState<number>(0);
+  const [threadUsage, setThreadUsage] = useState<{
+    inputTokens?: number;
+    outputTokens?: number;
+    cachedInputTokens?: number;
+    reasoningTokens?: number;
+    totalTokens?: number;
+  }>({});
 
   const assistantIdRef = useRef<string | null>(null);
   const assistantContentRef = useRef("");
   const currentChatIdRef = useRef(currentChatId);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const threadUsageRef = useRef<ChatMessage["usage"]>({});
+  const usageBeforeRef = useRef<ChatMessage["usage"]>({});
 
   useEffect(() => {
     currentChatIdRef.current = currentChatId;
@@ -842,9 +875,13 @@ function ChatApp() {
     if (currentChatId) {
       loadMessages(currentChatId);
       setSessionInfo({});
+      setContextWindow(0);
+      setThreadUsage({});
     } else {
       setMessages([]);
       setSessionInfo({});
+      setContextWindow(0);
+      setThreadUsage({});
     }
   }, [currentChatId, loadMessages]);
 
@@ -1006,10 +1043,11 @@ function ChatApp() {
         );
         updateBackendMessage(chatId, assistantId, assistantContentRef.current);
       } else if (event.type === "turn_complete") {
+        const delta = usageDelta(usageBeforeRef.current, threadUsageRef.current);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? { ...m, content: assistantContentRef.current, status: "complete", gate: null }
+              ? { ...m, content: assistantContentRef.current, status: "complete", gate: null, ...(delta ? { usage: delta } : {}) }
               : m
           )
         );
@@ -1034,6 +1072,18 @@ function ChatApp() {
           fast: event.fast,
           yolo: event.yolo,
         });
+        if (event.context_window) {
+          setContextWindow(event.context_window);
+        }
+        const nextUsage = {
+          inputTokens: event.input_tokens,
+          outputTokens: event.output_tokens,
+          cachedInputTokens: event.cache_read_tokens,
+          reasoningTokens: event.reasoning_tokens,
+          totalTokens: event.total_tokens || (event.input_tokens ?? 0) + (event.output_tokens ?? 0),
+        };
+        setThreadUsage(nextUsage);
+        threadUsageRef.current = nextUsage;
         if (event.model) {
           const provider = event.gateway || event.api_provider || event.provider || "";
           const providerLower = provider.toLowerCase();
@@ -1051,10 +1101,11 @@ function ChatApp() {
           }
         }
       } else if (event.type === "process_exit" || event.type === "error") {
+        const delta = usageDelta(usageBeforeRef.current, threadUsageRef.current);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? { ...m, content: assistantContentRef.current, status: "complete", gate: null }
+              ? { ...m, content: assistantContentRef.current, status: "complete", gate: null, ...(delta ? { usage: delta } : {}) }
               : m
           )
         );
@@ -1069,6 +1120,7 @@ function ChatApp() {
     setIsRunning(true);
     setError(null);
     assistantContentRef.current = "";
+    usageBeforeRef.current = threadUsageRef.current ?? {};
     const assistantId = await createBackendMessage(chatId, "assistant", "");
     assistantIdRef.current = assistantId;
     setMessages((prev) => [
@@ -1342,7 +1394,7 @@ function ChatApp() {
         )}
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <AssistantRuntimeProvider runtime={runtime}>
-            <Thread onUndo={handleUndo} />
+            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} />
           </AssistantRuntimeProvider>
         </div>
         <GateDialog pendingGate={pendingGate} onChoice={handleGateChoice} />
