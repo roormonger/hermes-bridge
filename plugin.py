@@ -68,6 +68,9 @@ def _setup_argparse(subparser):
         "--auto-start", type=lambda x: x.lower() in ("1", "true", "yes"), help="Auto-start daemon"
     )
     cfg_parser.add_argument(
+        "--hermes-dashboard-url", type=str, help="Override Hermes dashboard URL (default uses HERMES_DASHBOARD_URL env or http://127.0.0.1:9119)"
+    )
+    cfg_parser.add_argument(
         "--restart", action="store_true", help="Restart daemon after writing config"
     )
 
@@ -127,6 +130,8 @@ def _handle_cli(args) -> None:
             updates["debug"] = args.debug
         if hasattr(args, "auto_start") and args.auto_start is not None:
             updates["auto_start"] = args.auto_start
+        if hasattr(args, "hermes_dashboard_url") and args.hermes_dashboard_url is not None:
+            updates["hermes_dashboard_url"] = args.hermes_dashboard_url
         cfg = update_config(updates)
         print(json.dumps({"status": "configured", "config": cfg.to_dict()}, indent=2))
         if args.restart:

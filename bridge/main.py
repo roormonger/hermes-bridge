@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import urllib.error
 import urllib.request
 import uuid
@@ -386,6 +387,22 @@ class ModelSwitchRequest(BaseModel):
 
 # Shared scratch session key for catalog RPCs that don't belong to a specific chat.
 _MODEL_CATALOG_CHAT_ID = "__hermes_bridge_models_catalog__"
+_DEFAULT_HERMES_DASHBOARD_URL = "http://127.0.0.1:9119"
+
+
+def _hermes_dashboard_url() -> str:
+    """Return the Hermes dashboard URL, in order of precedence:
+
+    1. Explicit config value (hermes_dashboard_url)
+    2. HERMES_DASHBOARD_URL environment variable
+    3. Default localhost port used by Hermes dashboard
+    """
+    if config.hermes_dashboard_url:
+        return config.hermes_dashboard_url
+    env_url = os.environ.get("HERMES_DASHBOARD_URL")
+    if env_url:
+        return env_url
+    return _DEFAULT_HERMES_DASHBOARD_URL
 
 
 @app.get("/v1/models")
@@ -405,12 +422,7 @@ async def list_models(current_user: dict = Depends(get_current_user)) -> dict:
 @app.get("/v1/analytics/models")
 async def list_analytics_models(current_user: dict = Depends(get_current_user)) -> dict:
     """Proxy the Hermes dashboard analytics models list (recently-used / saved profiles)."""
-    if not config.hermes_dashboard_url:
-        raise HTTPException(
-            status_code=400,
-            detail="hermes_dashboard_url is not configured; set it in config.yaml and restart",
-        )
-    url = config.hermes_dashboard_url.rstrip("/") + "/api/analytics/models"
+    url = _hermes_dashboard_url().rstrip("/") + "/api/analytics/models"
     try:
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
