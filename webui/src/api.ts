@@ -68,6 +68,15 @@ export const undoLastTurn = (chatId: string) =>
     body: JSON.stringify({ chat_id: chatId }),
   });
 
+export const getChatUsage = (chatId: string) =>
+  apiFetch(`/api/chats/${chatId}/usage`);
+
+export const saveChatUsage = (chatId: string, usage: any) =>
+  apiFetch(`/api/chats/${chatId}/usage`, {
+    method: "PUT",
+    body: JSON.stringify({ usage }),
+  });
+
 export const streamEvents = async (
   url: string,
   body: object,

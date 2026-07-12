@@ -125,6 +125,10 @@ class UpdateMessageRequest(BaseModel):
     content: str
 
 
+class UsageSaveRequest(BaseModel):
+    usage: dict
+
+
 class GateChoiceRequest(BaseModel):
     choice: str
 
@@ -756,3 +760,19 @@ async def update_message(chat_id: str, message_id: int, request: UpdateMessageRe
         raise HTTPException(status_code=404, detail="Chat not found")
     history.update_message(message_id, current_user["user_id"], request.content)
     return {"id": message_id, "content": request.content}
+
+
+@app.get("/api/chats/{chat_id}/usage")
+async def get_chat_usage(chat_id: str, current_user: dict = Depends(get_current_user)) -> dict:
+    if history.get_chat(chat_id, current_user["user_id"]) is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    usage = history.get_chat_usage(chat_id, current_user["user_id"])
+    return {"usage": usage}
+
+
+@app.put("/api/chats/{chat_id}/usage")
+async def save_chat_usage(chat_id: str, request: UsageSaveRequest, current_user: dict = Depends(get_current_user)) -> dict:
+    if history.get_chat(chat_id, current_user["user_id"]) is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    history.set_chat_usage(chat_id, current_user["user_id"], request.usage)
+    return {"status": "ok"}

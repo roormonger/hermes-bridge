@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
+import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatUsage, saveChatUsage, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
 
 // ---------------------------------------------------------------------------
@@ -907,11 +907,6 @@ function ChatApp() {
         setThreadUsage(usage);
         threadUsageRef.current = usage;
         usageKnownRef.current = true;
-        try {
-          localStorage.setItem(`hermes-usage-${cid}`, JSON.stringify(usage));
-        } catch {
-          // ignore storage errors
-        }
       }
     } catch {
       // ignore
@@ -925,24 +920,25 @@ function ChatApp() {
   useEffect(() => {
     usageKnownRef.current = false;
     if (currentChatId) {
-      const saved = localStorage.getItem(`hermes-usage-${currentChatId}`);
-      if (saved) {
-        try {
-          const usage = JSON.parse(saved) as ChatMessage["usage"];
-          threadUsageRef.current = usage;
-          setThreadUsage(usage);
-          if ((usage.totalTokens ?? 0) > 0 || (usage.inputTokens ?? 0) > 0 || (usage.outputTokens ?? 0) > 0) {
-            usageKnownRef.current = true;
-          }
-        } catch {
-          // ignore corrupt storage
-        }
-      }
       loadMessages(currentChatId);
       setSessionInfo({});
       setContextWindow(0);
-      if (!saved) setThreadUsage({});
-      refreshUsage(currentChatId);
+      setThreadUsage({});
+      (async () => {
+        try {
+          const data = await getChatUsage(currentChatId);
+          const usage = (data as any)?.usage;
+          if (usage && ((usage.totalTokens ?? 0) > 0 || (usage.inputTokens ?? 0) > 0 || (usage.outputTokens ?? 0) > 0)) {
+            threadUsageRef.current = usage;
+            setThreadUsage(usage);
+            usageKnownRef.current = true;
+          }
+        } catch {
+          // ignore
+        } finally {
+          refreshUsage(currentChatId);
+        }
+      })();
     } else {
       setMessages([]);
       setSessionInfo({});
@@ -1234,6 +1230,9 @@ function ChatApp() {
           m.id === assistantId ? { ...m, usage: delta } : m
         )
       );
+    }
+    if (threadUsageRef.current && usageKnownRef.current) {
+      saveChatUsage(chatId, threadUsageRef.current).catch(() => {});
     }
   };
 

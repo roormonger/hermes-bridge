@@ -73,6 +73,12 @@ class ChatHistoryStore:
             conn.commit()
         except sqlite3.OperationalError:
             pass
+        # Migration: add last_usage_json column for persisted token baseline.
+        try:
+            conn.execute("ALTER TABLE chats ADD COLUMN last_usage_json TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
     def _user_where(self, user_id: Optional[str]) -> str:
@@ -216,3 +222,30 @@ class ChatHistoryStore:
             )
             conn.commit()
         return len(ids_to_delete)
+
+    def set_chat_usage(self, chat_id: str, user_id: Optional[str], usage: dict) -> None:
+        conn = self._conn()
+        conn.execute(
+            f"""
+            UPDATE chats SET last_usage_json = ?
+            WHERE chat_id = ? AND ({self._user_where(user_id)})
+            """,
+            (json.dumps(usage), chat_id, *self._user_params(user_id)),
+        )
+        conn.commit()
+
+    def get_chat_usage(self, chat_id: str, user_id: Optional[str]) -> Optional[dict]:
+        conn = self._conn()
+        row = conn.execute(
+            f"""
+            SELECT last_usage_json FROM chats
+            WHERE chat_id = ? AND ({self._user_where(user_id)})
+            """,
+            (chat_id, *self._user_params(user_id)),
+        ).fetchone()
+        if row and row["last_usage_json"]:
+            try:
+                return json.loads(row["last_usage_json"])
+            except json.JSONDecodeError:
+                return None
+        return None
