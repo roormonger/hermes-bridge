@@ -1082,6 +1082,8 @@ function ChatApp() {
           )
         );
       } else if (event.type === "tool_complete") {
+        // eslint-disable-next-line no-console
+        console.log("[tool_complete]", event.name, "result", event.result, "artifact", event.artifact);
         setMessages((prev) =>
           prev.map((m) => {
             if (m.id !== assistantId) return m;

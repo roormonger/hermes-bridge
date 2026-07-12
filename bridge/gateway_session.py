@@ -144,6 +144,8 @@ def _translate_event(frame: dict) -> Optional[dict]:
             "name": payload.get("name", ""),
             "summary": payload.get("summary", ""),
             "duration_s": payload.get("duration_s"),
+            "result": payload.get("result"),
+            "artifact": payload.get("artifact"),
         }
 
     if etype == "approval.request":

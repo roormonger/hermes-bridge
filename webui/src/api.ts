@@ -31,7 +31,7 @@ export type SseEvent =
   | { type: "turn_complete" }
   | { type: "tool_start"; tool_id: string; name: string; context?: string }
   | { type: "tool_progress"; tool_id: string; name: string; text: string }
-  | { type: "tool_complete"; tool_id: string; name: string; summary?: string; duration_s?: number }
+  | { type: "tool_complete"; tool_id: string; name: string; summary?: string; duration_s?: number; result?: unknown; artifact?: unknown }
   | { type: "session_title"; title: string; session_id?: string }
   | { type: "session_info"; model?: string; provider?: string; gateway?: string; api_provider?: string; reasoning_effort?: string; service_tier?: string; fast?: boolean; yolo?: boolean; context_window?: number; input_tokens?: number; output_tokens?: number; cache_read_tokens?: number; reasoning_tokens?: number; total_tokens?: number }
   | { type: "error"; message: string };
