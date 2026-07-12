@@ -10,10 +10,15 @@ import {
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 import { type FC, memo, useState } from "react";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, DownloadIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { makePrismAsyncLightSyntaxHighlighter } from "@assistant-ui/react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
@@ -34,6 +39,44 @@ const MarkdownTextImpl = () => {
 };
 
 export const MarkdownText = memo(MarkdownTextImpl);
+
+const MarkdownImage: FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({
+  src,
+  alt,
+  ...props
+}) => {
+  if (!src) return null;
+  return (
+    <span className="group relative my-3 inline-block">
+      <Dialog>
+        <DialogTrigger asChild>
+          <img
+            src={src}
+            alt={alt}
+            className="max-w-full cursor-zoom-in rounded-lg border border-border/50"
+            {...props}
+          />
+        </DialogTrigger>
+        <DialogContent className="max-w-[90vw] border-none bg-transparent p-0 shadow-none">
+          <img
+            src={src}
+            alt={alt}
+            className="max-h-[90vh] max-w-full rounded-lg object-contain"
+          />
+        </DialogContent>
+      </Dialog>
+      <a
+        href={src}
+        download
+        onClick={(e) => e.stopPropagation()}
+        className="absolute top-2 right-2 inline-flex size-8 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100"
+      >
+        <DownloadIcon className="size-4" />
+        <span className="sr-only">Download image</span>
+      </a>
+    </span>
+  );
+};
 
 const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard();
@@ -84,6 +127,7 @@ const useCopyToClipboard = ({
 };
 
 const defaultComponents = memoizeMarkdownComponents({
+  img: MarkdownImage,
   h1: ({ className, ...props }) => (
     <h1
       className={cn(
