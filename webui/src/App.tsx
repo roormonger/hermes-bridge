@@ -74,6 +74,9 @@ const generateId = () => {
   });
 };
 
+const formatAssistantText = (text: string): string =>
+  text.replace(/MEDIA:\s*(https?:\/\/\S+)/g, "![image]($1)");
+
 const usageDelta = (before: ChatMessage["usage"], after: ChatMessage["usage"]): ChatMessage["usage"] | undefined => {
   if (!after) return undefined;
   const b = before ?? {};
@@ -884,7 +887,7 @@ function ChatApp() {
         data.map((m: any) => ({
           id: String(m.id),
           role: m.role,
-          content: m.content,
+          content: m.role === "assistant" ? formatAssistantText(m.content) : m.content,
           images: m.images?.length ? m.images : undefined,
           status: m.role === "assistant" ? ("complete" as const) : undefined,
           createdAt: m.created_at ? m.created_at * 1000 : Date.now(),
@@ -1056,7 +1059,7 @@ function ChatApp() {
   const handleStreamEvent = useCallback(
     (event: SseEvent, chatId: string, assistantId: string) => {
       if (event.type === "text") {
-        assistantContentRef.current += event.text;
+        assistantContentRef.current += formatAssistantText(event.text);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
