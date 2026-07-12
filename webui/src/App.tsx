@@ -907,10 +907,13 @@ function ChatApp() {
       const { usage, contextWindow } = normalizeUsage(data);
       if (contextWindow) setContextWindow(contextWindow);
       const hasUsage = (usage.totalTokens ?? 0) > 0 || (usage.inputTokens ?? 0) > 0 || (usage.outputTokens ?? 0) > 0;
-      if (hasUsage) {
+      if (!hasUsage) return;
+      const currentTotal = threadUsageRef.current?.totalTokens ?? 0;
+      if ((usage.totalTokens ?? 0) >= currentTotal) {
         setThreadUsage(usage);
         threadUsageRef.current = usage;
         usageKnownRef.current = true;
+        saveChatUsage(cid, usage).catch(() => {});
       }
     } catch {
       // ignore
@@ -1059,7 +1062,9 @@ function ChatApp() {
   const handleStreamEvent = useCallback(
     (event: SseEvent, chatId: string, assistantId: string) => {
       if (event.type === "text") {
-        assistantContentRef.current += formatAssistantText(event.text);
+        assistantContentRef.current = formatAssistantText(
+          assistantContentRef.current + event.text
+        );
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -1197,9 +1202,21 @@ function ChatApp() {
     setIsRunning(true);
     setError(null);
     assistantContentRef.current = "";
-    await refreshUsage(chatId);
-    usageBeforeRef.current = threadUsageRef.current ?? {};
-    const baselineKnown = usageKnownRef.current;
+
+    let beforeUsage: ChatMessage["usage"] = {};
+    try {
+      const beforeData = await getUsage(chatId);
+      const { usage, contextWindow } = normalizeUsage(beforeData);
+      beforeUsage = usage;
+      if (contextWindow) setContextWindow(contextWindow);
+    } catch {}
+    const hasBefore =
+      (beforeUsage.totalTokens ?? 0) > 0 ||
+      (beforeUsage.inputTokens ?? 0) > 0 ||
+      (beforeUsage.outputTokens ?? 0) > 0;
+    usageKnownRef.current = usageKnownRef.current || hasBefore;
+    usageBeforeRef.current = beforeUsage;
+
     const assistantId = await createBackendMessage(chatId, "assistant", "");
     assistantIdRef.current = assistantId;
     setMessages((prev) => [
@@ -1217,7 +1234,10 @@ function ChatApp() {
         ac.signal,
       );
     } catch (e) {
-      if ((e as Error).name === "AbortError") return;
+      if ((e as Error).name === "AbortError") {
+        setIsRunning(false);
+        return;
+      }
       setError((e as Error).message);
       setIsRunning(false);
       setMessages((prev) =>
@@ -1226,8 +1246,16 @@ function ChatApp() {
         )
       );
     }
-    await refreshUsage(chatId);
-    const delta = baselineKnown ? usageDelta(usageBeforeRef.current, threadUsageRef.current) : undefined;
+
+    let afterUsage: ChatMessage["usage"] = {};
+    try {
+      const afterData = await getUsage(chatId);
+      const { usage, contextWindow } = normalizeUsage(afterData);
+      afterUsage = usage;
+      if (contextWindow) setContextWindow(contextWindow);
+    } catch {}
+
+    const delta = usageDelta(beforeUsage, afterUsage);
     if (delta) {
       setMessages((prev) =>
         prev.map((m) =>
@@ -1235,10 +1263,29 @@ function ChatApp() {
         )
       );
       saveMessageUsage(chatId, assistantId, delta).catch(() => {});
+
+      const current = threadUsageRef.current ?? {};
+      const next = {
+        inputTokens: (current.inputTokens ?? 0) + (delta.inputTokens ?? 0),
+        outputTokens: (current.outputTokens ?? 0) + (delta.outputTokens ?? 0),
+        cachedInputTokens: (current.cachedInputTokens ?? 0) + (delta.cachedInputTokens ?? 0),
+        reasoningTokens: (current.reasoningTokens ?? 0) + (delta.reasoningTokens ?? 0),
+        totalTokens: 0,
+      };
+      next.totalTokens = next.inputTokens + next.outputTokens + next.cachedInputTokens + next.reasoningTokens;
+      threadUsageRef.current = next;
+      setThreadUsage(next);
+      saveChatUsage(chatId, next).catch(() => {});
+      usageKnownRef.current = true;
+    } else if (hasBefore) {
+      const currentTotal = threadUsageRef.current?.totalTokens ?? 0;
+      if ((afterUsage.totalTokens ?? 0) >= currentTotal) {
+        threadUsageRef.current = afterUsage;
+        setThreadUsage(afterUsage);
+        saveChatUsage(chatId, afterUsage).catch(() => {});
+      }
     }
-    if (threadUsageRef.current && usageKnownRef.current) {
-      saveChatUsage(chatId, threadUsageRef.current).catch(() => {});
-    }
+    setIsRunning(false);
   };
 
   const handleGateChoice = async (choice: string) => {
