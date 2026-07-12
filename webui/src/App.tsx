@@ -901,11 +901,17 @@ function ChatApp() {
     try {
       const data = await getUsage(cid);
       const { usage, contextWindow } = normalizeUsage(data);
-      setThreadUsage(usage);
-      threadUsageRef.current = usage;
       if (contextWindow) setContextWindow(contextWindow);
-      if ((usage.totalTokens ?? 0) > 0 || (usage.inputTokens ?? 0) > 0 || (usage.outputTokens ?? 0) > 0) {
+      const hasUsage = (usage.totalTokens ?? 0) > 0 || (usage.inputTokens ?? 0) > 0 || (usage.outputTokens ?? 0) > 0;
+      if (hasUsage) {
+        setThreadUsage(usage);
+        threadUsageRef.current = usage;
         usageKnownRef.current = true;
+        try {
+          localStorage.setItem(`hermes-usage-${cid}`, JSON.stringify(usage));
+        } catch {
+          // ignore storage errors
+        }
       }
     } catch {
       // ignore
@@ -919,10 +925,23 @@ function ChatApp() {
   useEffect(() => {
     usageKnownRef.current = false;
     if (currentChatId) {
+      const saved = localStorage.getItem(`hermes-usage-${currentChatId}`);
+      if (saved) {
+        try {
+          const usage = JSON.parse(saved) as ChatMessage["usage"];
+          threadUsageRef.current = usage;
+          setThreadUsage(usage);
+          if ((usage.totalTokens ?? 0) > 0 || (usage.inputTokens ?? 0) > 0 || (usage.outputTokens ?? 0) > 0) {
+            usageKnownRef.current = true;
+          }
+        } catch {
+          // ignore corrupt storage
+        }
+      }
       loadMessages(currentChatId);
       setSessionInfo({});
       setContextWindow(0);
-      setThreadUsage({});
+      if (!saved) setThreadUsage({});
       refreshUsage(currentChatId);
     } else {
       setMessages([]);
