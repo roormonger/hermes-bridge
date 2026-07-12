@@ -17,6 +17,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatUsage, saveChatUsage, saveMessageUsage, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
@@ -537,17 +542,19 @@ function GateDialog({
 // Sidebar
 // ---------------------------------------------------------------------------
 
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 function formatGroup(date: Date): string {
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfYesterday = new Date(startOfToday);
-  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-  const startOfWeek = new Date(startOfToday);
-  startOfWeek.setDate(startOfWeek.getDate() - 7);
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const daysAgo = Math.floor((startOfToday.getTime() - startOfDate.getTime()) / (1000 * 60 * 60 * 24));
 
-  if (date >= startOfToday) return "Today";
-  if (date >= startOfYesterday) return "Yesterday";
-  if (date >= startOfWeek) return "Previous 7 days";
+  if (daysAgo <= 0) return "Today";
+  if (daysAgo === 1) return "Yesterday";
+  if (daysAgo >= 2 && daysAgo <= 6) return DAY_NAMES[startOfDate.getDay()];
+  if (daysAgo >= 7 && daysAgo <= 13) return "Last Week";
+  if (daysAgo >= 14 && daysAgo <= 30) return "Last Month";
   return "Older";
 }
 
@@ -558,10 +565,31 @@ function groupChats(chats: Chat[]): { label: string; items: Chat[] }[] {
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label)!.push(chat);
   }
-  const order = ["Today", "Yesterday", "Previous 7 days", "Older"];
+
+  const dayOrder: string[] = [];
+  const today = new Date();
+  for (let i = 2; i <= 6; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    d.setDate(d.getDate() - i);
+    dayOrder.push(DAY_NAMES[d.getDay()]);
+  }
+
+  const order = ["Today", "Yesterday", ...dayOrder, "Last Week", "Last Month", "Older"];
   return order
     .filter((label) => groups.has(label))
     .map((label) => ({ label, items: groups.get(label)! }));
+}
+
+function formatChatDate(value: string | number | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function ChatSidebar({
@@ -703,20 +731,20 @@ function ChatSidebar({
               </h3>
             )}
             {items.map((chat) => (
-              <div
-                key={chat.chat_id}
-                className={cn(
-                  "group relative flex items-center rounded-lg text-sm cursor-pointer transition-colors",
-                  collapsed ? "justify-center size-10 p-0 mx-auto" : "gap-3 px-2 py-2",
-                  currentChatId === chat.chat_id
-                    ? "bg-accent text-accent-foreground"
-                    : "hover:bg-muted"
-                )}
-                onClick={() => onSelect(chat.chat_id)}
-                title={chat.title}
-              >
-                <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
-                {!collapsed && (
+              <Tooltip key={chat.chat_id}>
+                <TooltipTrigger asChild>
+                  <div
+                    className={cn(
+                      "group relative flex items-center rounded-lg text-sm cursor-pointer transition-colors",
+                      collapsed ? "justify-center size-10 p-0 mx-auto" : "gap-3 px-2 py-2",
+                      currentChatId === chat.chat_id
+                        ? "bg-accent text-accent-foreground"
+                        : "hover:bg-muted"
+                    )}
+                    onClick={() => onSelect(chat.chat_id)}
+                  >
+                    <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
+                    {!collapsed && (
                   <>
                     {editingId === chat.chat_id ? (
                       <div className="flex flex-1 items-center gap-1">
@@ -794,7 +822,12 @@ function ChatSidebar({
                     )}
                   </>
                 )}
-              </div>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="text-xs">
+                  {formatChatDate(chat.updated_at || chat.created_at)}
+                </TooltipContent>
+              </Tooltip>
             ))}
           </div>
         ))}
