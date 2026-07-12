@@ -255,6 +255,23 @@ def _dispatch_sync(req: dict, transport: "QueueTransport") -> dict:
 
 
 # ---------------------------------------------------------------------------
+class _TimedCache:
+    """Simple in-memory TTL cache keyed by string."""
+
+    def __init__(self, ttl: float) -> None:
+        self.ttl = ttl
+        self._data: dict[str, tuple[float, Any]] = {}
+
+    def get(self, key: str) -> Any:
+        ts, value = self._data.get(key, (0, None))
+        if value is not None and time.monotonic() - ts < self.ttl:
+            return value
+        return None
+
+    def set(self, key: str, value: Any) -> None:
+        self._data[key] = (time.monotonic(), value)
+
+
 # GatewaySession — one per active chat
 # ---------------------------------------------------------------------------
 
@@ -286,6 +303,8 @@ class GatewaySession:
         self._lock = threading.Lock()
         self._pending_gate: Optional[dict] = None  # last gate_interrupt event
         self.last_active = time.monotonic()
+        self._model_options_cache = _TimedCache(30.0)
+        self._current_model_cache = _TimedCache(5.0)
         # True once we've confirmed this session_id is live in the gateway.
         # Starts False for sessions loaded from DB (may be stale); True for
         # sessions we create ourselves in this process run.
@@ -411,6 +430,10 @@ class GatewaySession:
     def model_options(self, *, explicit_only: bool = True, include_unauthenticated: bool = False) -> dict:
         """Return the gateway's model/provider picker payload."""
         self.last_active = time.monotonic()
+        cache_key = f"model_options:{explicit_only}:{include_unauthenticated}"
+        cached = self._model_options_cache.get(cache_key)
+        if cached is not None:
+            return cached
         params: dict = {
             "picker_hints": True,
             "canonical_order": True,
@@ -424,12 +447,18 @@ class GatewaySession:
         result = self._call("model.options", params)
         if isinstance(result, dict) and "error" in result:
             raise RuntimeError(result["error"].get("message", "model.options failed"))
-        return result.get("result") or {}
+        data = result.get("result") or {}
+        self._model_options_cache.set(cache_key, data)
+        return data
 
     # ------------------------------------------------------------------
     def current_model(self) -> dict:
         """Return the currently configured model/provider."""
         self.last_active = time.monotonic()
+        cache_key = "current_model"
+        cached = self._current_model_cache.get(cache_key)
+        if cached is not None:
+            return cached
         result = self._call("config.get", {"key": "provider"})
         if isinstance(result, dict) and "error" in result:
             raise RuntimeError(result["error"].get("message", "config.get provider failed"))
@@ -443,6 +472,7 @@ class GatewaySession:
                 data["provider"] = opts["provider"]
         except RuntimeError:
             pass
+        self._current_model_cache.set(cache_key, data)
         return data
 
     # ------------------------------------------------------------------
@@ -461,6 +491,8 @@ class GatewaySession:
         )
         if isinstance(result, dict) and "error" in result:
             raise RuntimeError(result["error"].get("message", "config.set model failed"))
+        self._model_options_cache._data.clear()
+        self._current_model_cache._data.clear()
         return result.get("result") or {}
 
     # ------------------------------------------------------------------
