@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatUsage, saveChatUsage, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
+import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatUsage, saveChatUsage, saveMessageUsage, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
 
 // ---------------------------------------------------------------------------
@@ -888,6 +888,7 @@ function ChatApp() {
           images: m.images?.length ? m.images : undefined,
           status: m.role === "assistant" ? ("complete" as const) : undefined,
           createdAt: m.created_at ? m.created_at * 1000 : Date.now(),
+          usage: m.usage || undefined,
         }))
       );
     } catch (e) {
@@ -1230,6 +1231,7 @@ function ChatApp() {
           m.id === assistantId ? { ...m, usage: delta } : m
         )
       );
+      saveMessageUsage(chatId, assistantId, delta).catch(() => {});
     }
     if (threadUsageRef.current && usageKnownRef.current) {
       saveChatUsage(chatId, threadUsageRef.current).catch(() => {});

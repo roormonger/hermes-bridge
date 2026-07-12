@@ -77,6 +77,12 @@ export const saveChatUsage = (chatId: string, usage: any) =>
     body: JSON.stringify({ usage }),
   });
 
+export const saveMessageUsage = (chatId: string, messageId: string, usage: any) =>
+  apiFetch(`/api/chats/${chatId}/messages/${messageId}/usage`, {
+    method: "PUT",
+    body: JSON.stringify({ usage }),
+  });
+
 export const streamEvents = async (
   url: string,
   body: object,

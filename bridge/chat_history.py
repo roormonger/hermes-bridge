@@ -79,6 +79,12 @@ class ChatHistoryStore:
             conn.commit()
         except sqlite3.OperationalError:
             pass
+        # Migration: add usage_json column for per-message token usage.
+        try:
+            conn.execute("ALTER TABLE messages ADD COLUMN usage_json TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
     def _user_where(self, user_id: Optional[str]) -> str:
@@ -160,6 +166,19 @@ class ChatHistoryStore:
         )
         conn.commit()
 
+    def update_message_usage(self, message_id: int, user_id: Optional[str], usage: dict) -> None:
+        conn = self._conn()
+        conn.execute(
+            f"""
+            UPDATE messages SET usage_json = ?
+            WHERE id = ? AND chat_id IN (
+                SELECT chat_id FROM chats WHERE {self._user_where(user_id)}
+            )
+            """,
+            (json.dumps(usage), message_id, *self._user_params(user_id)),
+        )
+        conn.commit()
+
     def get_messages(self, chat_id: str, user_id: Optional[str]) -> list[dict]:
         conn = self._conn()
         # Ensure the chat belongs to the user (or is unowned) before returning messages.
@@ -167,7 +186,7 @@ class ChatHistoryStore:
         if chat is None:
             return []
         rows = conn.execute(
-            "SELECT id, role, content, images, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
+            "SELECT id, role, content, images, usage_json, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
             (chat_id,),
         ).fetchall()
         result = []
@@ -175,6 +194,8 @@ class ChatHistoryStore:
             d = dict(row)
             raw = d.pop("images", None)
             d["images"] = json.loads(raw) if raw else []
+            raw_usage = d.pop("usage_json", None)
+            d["usage"] = json.loads(raw_usage) if raw_usage else None
             result.append(d)
         return result
 

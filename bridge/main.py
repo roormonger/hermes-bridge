@@ -776,3 +776,11 @@ async def save_chat_usage(chat_id: str, request: UsageSaveRequest, current_user:
         raise HTTPException(status_code=404, detail="Chat not found")
     history.set_chat_usage(chat_id, current_user["user_id"], request.usage)
     return {"status": "ok"}
+
+
+@app.put("/api/chats/{chat_id}/messages/{message_id}/usage")
+async def save_message_usage(chat_id: str, message_id: int, request: UsageSaveRequest, current_user: dict = Depends(get_current_user)) -> dict:
+    if history.get_chat(chat_id, current_user["user_id"]) is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    history.update_message_usage(message_id, current_user["user_id"], request.usage)
+    return {"status": "ok"}
