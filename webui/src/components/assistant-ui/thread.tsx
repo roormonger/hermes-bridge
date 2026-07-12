@@ -371,6 +371,13 @@ const ComposerAction: FC<{
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <ComposerAddAttachment />
       <div className="flex items-center gap-1.5">
+        {contextWindow && contextWindow > 0 && (
+          <ContextDisplay.Bar
+            modelContextWindow={contextWindow}
+            usage={threadUsage}
+            side="top"
+          />
+        )}
         {onUndo && canUndo && (
           <TooltipIconButton
             tooltip="Undo last turn"
@@ -446,13 +453,6 @@ const ComposerAction: FC<{
             </Button>
           </ComposerPrimitive.Cancel>
         </AuiIf>
-        {contextWindow && contextWindow > 0 && (
-          <ContextDisplay.Ring
-            modelContextWindow={contextWindow}
-            usage={threadUsage}
-            side="top"
-          />
-        )}
       </div>
     </div>
   );
