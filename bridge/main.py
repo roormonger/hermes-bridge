@@ -94,6 +94,16 @@ async def _on_startup() -> None:
     logger.info("hermes-bridge web UI directory: %s", _webui_dir)
     logger.info("hermes-bridge backend: %s", _BACKEND)
 
+    if _BACKEND == "gateway":
+        loop = asyncio.get_running_loop()
+        try:
+            gw = sessions.get_or_create(_MODEL_CATALOG_CHAT_ID, None, loop)
+            await loop.run_in_executor(None, gw.model_options)
+            await loop.run_in_executor(None, gw.current_model)
+            logger.info("hermes-bridge model catalog pre-warmed")
+        except Exception as exc:
+            logger.warning("hermes-bridge model catalog pre-warm failed: %s", exc)
+
 
 class ChatRequest(BaseModel):
     chat_id: str
