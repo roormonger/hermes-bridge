@@ -862,6 +862,7 @@ function ChatApp() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const threadUsageRef = useRef<ChatMessage["usage"]>({});
   const usageBeforeRef = useRef<ChatMessage["usage"]>({});
+  const usageKnownRef = useRef(false);
 
   useEffect(() => {
     currentChatIdRef.current = currentChatId;
@@ -903,6 +904,9 @@ function ChatApp() {
       setThreadUsage(usage);
       threadUsageRef.current = usage;
       if (contextWindow) setContextWindow(contextWindow);
+      if ((usage.totalTokens ?? 0) > 0 || (usage.inputTokens ?? 0) > 0 || (usage.outputTokens ?? 0) > 0) {
+        usageKnownRef.current = true;
+      }
     } catch {
       // ignore
     }
@@ -913,6 +917,7 @@ function ChatApp() {
   }, [loadChats]);
 
   useEffect(() => {
+    usageKnownRef.current = false;
     if (currentChatId) {
       loadMessages(currentChatId);
       setSessionInfo({});
@@ -1093,13 +1098,10 @@ function ChatApp() {
         );
         updateBackendMessage(chatId, assistantId, assistantContentRef.current);
       } else if (event.type === "turn_complete") {
-        const delta = usageDelta(usageBeforeRef.current, threadUsageRef.current);
-        // eslint-disable-next-line no-console
-        console.log("[turn_complete] delta", delta, "before", usageBeforeRef.current, "after", threadUsageRef.current);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? { ...m, content: assistantContentRef.current, status: "complete", gate: null, ...(delta ? { usage: delta } : {}) }
+              ? { ...m, content: assistantContentRef.current, status: "complete", gate: null }
               : m
           )
         );
@@ -1156,11 +1158,10 @@ function ChatApp() {
           }
         }
       } else if (event.type === "process_exit" || event.type === "error") {
-        const delta = usageDelta(usageBeforeRef.current, threadUsageRef.current);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? { ...m, content: assistantContentRef.current, status: "complete", gate: null, ...(delta ? { usage: delta } : {}) }
+              ? { ...m, content: assistantContentRef.current, status: "complete", gate: null }
               : m
           )
         );
@@ -1177,8 +1178,7 @@ function ChatApp() {
     assistantContentRef.current = "";
     await refreshUsage(chatId);
     usageBeforeRef.current = threadUsageRef.current ?? {};
-    // eslint-disable-next-line no-console
-    console.log("[streamAssistant] baseline", usageBeforeRef.current);
+    const baselineKnown = usageKnownRef.current;
     const assistantId = await createBackendMessage(chatId, "assistant", "");
     assistantIdRef.current = assistantId;
     setMessages((prev) => [
@@ -1206,9 +1206,7 @@ function ChatApp() {
       );
     }
     await refreshUsage(chatId);
-    const delta = usageDelta(usageBeforeRef.current, threadUsageRef.current);
-    // eslint-disable-next-line no-console
-    console.log("[streamAssistant] after", threadUsageRef.current, "delta", delta);
+    const delta = baselineKnown ? usageDelta(usageBeforeRef.current, threadUsageRef.current) : undefined;
     if (delta) {
       setMessages((prev) =>
         prev.map((m) =>
