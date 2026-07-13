@@ -9,8 +9,8 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { type FC, memo, useState } from "react";
-import { CheckIcon, CopyIcon, DownloadIcon } from "lucide-react";
+import { type FC, memo, useEffect, useState } from "react";
+import { CheckIcon, CopyIcon, DownloadIcon, LinkIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
@@ -48,16 +48,21 @@ const MarkdownImage: FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({
   if (!src) return null;
   const [failed, setFailed] = useState(false);
 
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
   if (failed) {
     return (
       <a
         href={src}
         target="_blank"
         rel="noopener noreferrer"
-        className="my-3 inline-flex max-w-full items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-2 text-sm text-primary hover:underline"
+        title={src}
+        className="my-3 flex max-w-full items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-2 text-sm text-primary hover:underline"
       >
-        <DownloadIcon className="size-4 shrink-0" />
-        <span className="break-all">{src}</span>
+        <LinkIcon className="size-4 shrink-0" />
+        <span className="break-words">{src}</span>
       </a>
     );
   }
@@ -72,6 +77,7 @@ const MarkdownImage: FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({
             loading="lazy"
             className="max-w-full cursor-zoom-in rounded-lg border border-border/50"
             onError={() => setFailed(true)}
+            onLoad={() => setFailed(false)}
             {...props}
           />
         </DialogTrigger>
