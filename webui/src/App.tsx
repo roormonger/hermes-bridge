@@ -153,6 +153,18 @@ const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
   role: msg.role,
   content: [
     ...(msg.images ?? []).map((src) => ({ type: "image" as const, image: src })),
+    ...(msg.toolSteps ?? []).map((step) => ({
+      type: "tool-call" as const,
+      toolCallId: step.name,
+      toolName: step.name,
+      argsText: step.context ?? "",
+      status:
+        step.status === "running"
+          ? ({ type: "running" } as const)
+          : ({ type: "complete" } as const),
+      result: step.summary ?? "",
+      durationS: step.durationS,
+    })),
     { type: "text", text: msg.content },
   ],
   status:
@@ -164,7 +176,6 @@ const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
   metadata: {
     custom: {
       ...(msg.gate ? { gate: msg.gate } : {}),
-      toolSteps: msg.toolSteps ?? [],
       createdAt: msg.createdAt ?? Date.now(),
       ...(msg.usage ? { usage: msg.usage } : {}),
     },

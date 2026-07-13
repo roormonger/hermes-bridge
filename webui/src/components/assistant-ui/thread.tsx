@@ -7,8 +7,12 @@ import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { DotMatrix } from "@/components/dot-matrix";
 import { ContextDisplay } from "@/components/context-display";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import type { ThreadTokenUsage } from "@assistant-ui/react-ai-sdk";
 import {
   ActionBarMorePrimitive,
@@ -21,6 +25,7 @@ import {
   MessagePrimitive,
   SuggestionPrimitive,
   ThreadPrimitive,
+  groupPartByType,
   useAuiState,
   useComposerRuntime,
 } from "@assistant-ui/react";
@@ -41,7 +46,7 @@ import {
   Undo2Icon,
   WrenchIcon,
 } from "lucide-react";
-import { type FC, useState, useCallback, useEffect } from "react";
+import { type FC, type ReactNode, useState, useCallback, useEffect, Children } from "react";
 import { createPortal } from "react-dom";
 import { getToken } from "../../api";
 
@@ -475,72 +480,66 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-type ToolStep = {
-  name: string;
-  context?: string;
-  summary?: string;
+type ToolCallPart = {
+  type: "tool-call";
+  toolName: string;
+  argsText?: string;
+  status?: { type: "running" } | { type: "complete" };
+  result?: string;
   durationS?: number;
-  status: "running" | "done";
 };
 
-const ToolStepsPill: FC<{ steps: ToolStep[]; isRunning: boolean }> = ({ steps, isRunning }) => {
-  const [open, setOpen] = useState(false);
-  if (steps.length === 0 && !isRunning) return null;
-
-  const doneCount = steps.filter((s) => s.status === "done").length;
-  const label = isRunning && steps.length === 0
-    ? "Thinking…"
-    : isRunning
-    ? `${doneCount} of ${steps.length} steps…`
-    : `${steps.length} step${steps.length !== 1 ? "s" : ""}`;
-
+const ToolCallRow: FC<{ step: ToolCallPart }> = ({ step }) => {
+  const isRunning = step.status?.type === "running";
   return (
-    <div className="mb-2">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        {isRunning
-          ? <DotMatrix state="thinking" className="size-3.5 -my-0.5" />
-          : <WrenchIcon className="size-3" />
-        }
-        <span>{label}</span>
-        <ChevronDownIcon className={cn("size-3 transition-transform", open && "rotate-180")} />
-      </button>
-      {open && (
-        <div className="mt-1.5 rounded-lg border border-border/40 bg-muted/30 divide-y divide-border/30 overflow-hidden text-xs">
-          {steps.length === 0 && (
-            <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground">
-              <span className="size-1.5 rounded-full bg-primary animate-pulse" />
-              Working…
-            </div>
-          )}
-          {steps.map((step, i) => (
-            <div key={i} className="flex items-start gap-2 px-3 py-2">
-              <div className="mt-0.5 shrink-0">
-                {step.status === "running" ? (
-                  <span className="size-1.5 rounded-full bg-amber-400 animate-pulse inline-block" />
-                ) : (
-                  <span className="size-1.5 rounded-full bg-emerald-500 inline-block" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <span className="font-medium text-foreground/80">{step.name}</span>
-                {step.context && (
-                  <span className="text-muted-foreground"> · {step.context}</span>
-                )}
-                {step.summary && (
-                  <div className="text-muted-foreground mt-0.5 truncate">{step.summary}</div>
-                )}
-              </div>
-              {step.durationS != null && (
-                <span className="shrink-0 text-muted-foreground/70">{step.durationS.toFixed(1)}s</span>
-              )}
-            </div>
-          ))}
-        </div>
+    <div className="flex items-start gap-2 px-3 py-2">
+      <div className="mt-0.5 shrink-0">
+        {isRunning ? (
+          <span className="size-1.5 rounded-full bg-amber-400 animate-pulse inline-block" />
+        ) : (
+          <span className="size-1.5 rounded-full bg-emerald-500 inline-block" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <span className="font-medium text-foreground/80">{step.toolName}</span>
+        {step.argsText && (
+          <span className="text-muted-foreground"> · {step.argsText}</span>
+        )}
+        {step.result && (
+          <div className="text-muted-foreground mt-0.5 truncate">{step.result}</div>
+        )}
+      </div>
+      {step.durationS != null && (
+        <span className="shrink-0 text-muted-foreground/70">{step.durationS.toFixed(1)}s</span>
       )}
     </div>
+  );
+};
+
+const ToolStepsGroup: FC<{ children: ReactNode }> = ({ children }) => {
+  const [open, setOpen] = useState(false);
+  const count = Children.toArray(children).length;
+  if (count === 0) return null;
+  const label = `${count} step${count !== 1 ? "s" : ""}`;
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="mb-2">
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <WrenchIcon className="size-3" />
+          <span>{label}</span>
+          <ChevronDownIcon className={cn("size-3 transition-transform", open && "rotate-180")} />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-1.5 rounded-lg border border-border/40 bg-muted/30 divide-y divide-border/30 overflow-hidden text-xs">
+          {children}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 };
 
@@ -548,8 +547,6 @@ const AssistantMessage: FC = () => {
   const ACTION_BAR_PT = "pt-1.5";
   const ACTION_BAR_HEIGHT = `-mb-7.5 min-h-7.5 ${ACTION_BAR_PT}`;
   const meta = useAuiState((s) => (s.message.metadata as any)?.custom ?? {});
-  const isRunning = useAuiState((s) => s.message.status?.type === "running");
-  const toolSteps: ToolStep[] = meta.toolSteps ?? [];
   const createdAt: number = meta.createdAt ?? Date.now();
   const messageUsage: { totalTokens?: number } | undefined = meta.usage;
 
@@ -585,20 +582,29 @@ const AssistantMessage: FC = () => {
         data-slot="aui_assistant-message-content"
         className="text-foreground px-2 leading-relaxed wrap-break-word [contain-intrinsic-size:auto_24px] [content-visibility:auto]"
       >
-        <ToolStepsPill steps={toolSteps} isRunning={isRunning} />
-        <MessagePrimitive.Parts>
-          {({ part }) => {
-            if (part.type === "text") return (
-              <>
-                <MarkdownText />
-                <AuiIf condition={(s) => s.message.status?.type !== "running"}>
-                  <FileDownloadLinks text={(part as any).text ?? ""} />
-                </AuiIf>
-              </>
-            );
-            return null;
+        <MessagePrimitive.GroupedParts
+          groupBy={groupPartByType({ "tool-call": ["group-tool"] })}
+        >
+          {({ part, children }) => {
+            switch (part.type) {
+              case "group-tool":
+                return <ToolStepsGroup>{children}</ToolStepsGroup>;
+              case "text":
+                return (
+                  <>
+                    <MarkdownText />
+                    <AuiIf condition={(s) => s.message.status?.type !== "running"}>
+                      <FileDownloadLinks text={(part as any).text ?? ""} />
+                    </AuiIf>
+                  </>
+                );
+              case "tool-call":
+                return <ToolCallRow step={part as unknown as ToolCallPart} />;
+              default:
+                return null;
+            }
           }}
-        </MessagePrimitive.Parts>
+        </MessagePrimitive.GroupedParts>
         <MessageError />
       </div>
 
