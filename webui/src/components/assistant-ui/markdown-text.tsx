@@ -46,6 +46,22 @@ const MarkdownImage: FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({
   ...props
 }) => {
   if (!src) return null;
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <a
+        href={src}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="my-3 inline-flex max-w-full items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-2 text-sm text-primary hover:underline"
+      >
+        <DownloadIcon className="size-4 shrink-0" />
+        <span className="break-all">{src}</span>
+      </a>
+    );
+  }
+
   return (
     <span className="group relative my-3 inline-block">
       <Dialog>
@@ -53,7 +69,9 @@ const MarkdownImage: FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({
           <img
             src={src}
             alt={alt}
+            loading="lazy"
             className="max-w-full cursor-zoom-in rounded-lg border border-border/50"
+            onError={() => setFailed(true)}
             {...props}
           />
         </DialogTrigger>
@@ -62,6 +80,7 @@ const MarkdownImage: FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({
             src={src}
             alt={alt}
             className="max-h-[90vh] max-w-full rounded-lg object-contain"
+            onError={() => setFailed(true)}
           />
         </DialogContent>
       </Dialog>
