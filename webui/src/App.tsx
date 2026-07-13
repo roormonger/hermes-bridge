@@ -103,6 +103,11 @@ const formatAssistantText = (text: string): string => {
     return `![image](${match})`;
   });
 
+  if (text.includes("https://v") || out.includes("https://v")) {
+    // eslint-disable-next-line no-console
+    console.log("[formatAssistantText] in:", JSON.stringify(text), "out:", JSON.stringify(out));
+  }
+
   return out;
 };
 
@@ -1130,6 +1135,10 @@ function ChatApp() {
   const handleStreamEvent = useCallback(
     (event: SseEvent, chatId: string, assistantId: string) => {
       if (event.type === "text") {
+        if (event.text.includes("https://v")) {
+          // eslint-disable-next-line no-console
+          console.log("[SSE text event]", JSON.stringify(event.text));
+        }
         assistantContentRef.current = formatAssistantText(
           assistantContentRef.current + event.text
         );
