@@ -5,7 +5,6 @@ import "@assistant-ui/react-markdown/styles/dot.css";
 import {
   type CodeHeaderProps,
   MarkdownTextPrimitive,
-  unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
@@ -33,7 +32,6 @@ const MarkdownTextImpl = () => {
       remarkPlugins={[remarkGfm]}
       className="aui-md"
       components={defaultComponents}
-      defer
     />
   );
 };
@@ -151,7 +149,7 @@ const useCopyToClipboard = ({
   return { isCopied, copyToClipboard };
 };
 
-const defaultComponents = memoizeMarkdownComponents({
+const defaultComponents = {
   img: MarkdownImage,
   h1: ({ className, ...props }) => (
     <h1
@@ -333,4 +331,4 @@ const defaultComponents = memoizeMarkdownComponents({
   },
   CodeHeader,
   SyntaxHighlighter,
-});
+};
