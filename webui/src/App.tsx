@@ -929,6 +929,7 @@ function ChatApp() {
 
   const assistantIdRef = useRef<string | null>(null);
   const assistantContentRef = useRef("");
+  const assistantToolStepsRef = useRef<ToolStep[]>([]);
   const currentChatIdRef = useRef(currentChatId);
   const abortControllerRef = useRef<AbortController | null>(null);
   const threadUsageRef = useRef<ChatMessage["usage"]>({});
@@ -958,6 +959,7 @@ function ChatApp() {
           content: m.role === "assistant" ? formatAssistantText(m.content) : m.content,
           images: m.images?.length ? m.images : undefined,
           status: m.role === "assistant" ? ("complete" as const) : undefined,
+          toolSteps: m.tool_steps?.length ? m.tool_steps : undefined,
           createdAt: m.created_at ? m.created_at * 1000 : Date.now(),
           usage: m.usage || undefined,
         }))
@@ -1107,11 +1109,12 @@ function ChatApp() {
     chatId: string,
     role: "user" | "assistant",
     content: string,
-    images?: string[]
+    images?: string[],
+    toolSteps?: ToolStep[]
   ): Promise<string> => {
     const data = await apiFetch(`/api/chats/${chatId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ role, content, images: images ?? [] }),
+      body: JSON.stringify({ role, content, images: images ?? [], tool_steps: toolSteps ?? [] }),
     });
     return String(data.id);
   };
@@ -1119,11 +1122,12 @@ function ChatApp() {
   const updateBackendMessage = async (
     chatId: string,
     messageId: string,
-    content: string
+    content: string,
+    toolSteps?: ToolStep[]
   ) => {
     await apiFetch(`/api/chats/${chatId}/messages/${messageId}`, {
       method: "PUT",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, tool_steps: toolSteps ?? [] }),
     });
   };
 
@@ -1141,37 +1145,35 @@ function ChatApp() {
           )
         );
       } else if (event.type === "tool_start") {
+        assistantToolStepsRef.current = [
+          ...(assistantToolStepsRef.current ?? []),
+          { name: event.name, context: event.context, status: "running" as const },
+        ];
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? {
-                  ...m,
-                  toolSteps: [
-                    ...(m.toolSteps ?? []),
-                    { name: event.name, context: event.context, status: "running" as const },
-                  ],
-                }
+              ? { ...m, toolSteps: assistantToolStepsRef.current }
               : m
           )
         );
       } else if (event.type === "tool_complete") {
         // eslint-disable-next-line no-console
         console.log("[tool_complete]", event.name, "result", event.result, "artifact", event.artifact);
+        const steps = [...(assistantToolStepsRef.current ?? [])];
+        const idx = steps.map((s) => s.name).lastIndexOf(event.name);
+        if (idx !== -1) {
+          steps[idx] = {
+            ...steps[idx],
+            summary: event.summary,
+            durationS: event.duration_s,
+            status: "done" as const,
+          };
+        }
+        assistantToolStepsRef.current = steps;
         setMessages((prev) =>
-          prev.map((m) => {
-            if (m.id !== assistantId) return m;
-            const steps = [...(m.toolSteps ?? [])];
-            const idx = steps.map((s) => s.name).lastIndexOf(event.name);
-            if (idx !== -1) {
-              steps[idx] = {
-                ...steps[idx],
-                summary: event.summary,
-                durationS: event.duration_s,
-                status: "done" as const,
-              };
-            }
-            return { ...m, toolSteps: steps };
-          })
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, toolSteps: steps } : m
+          )
         );
       } else if (event.type === "gate_interrupt") {
         const gate: Gate = {
@@ -1190,7 +1192,7 @@ function ChatApp() {
               : m
           )
         );
-        updateBackendMessage(chatId, assistantId, assistantContentRef.current);
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current);
       } else if (event.type === "turn_complete") {
         setMessages((prev) =>
           prev.map((m) =>
@@ -1200,7 +1202,7 @@ function ChatApp() {
           )
         );
         setIsRunning(false);
-        updateBackendMessage(chatId, assistantId, assistantContentRef.current);
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current);
       } else if (event.type === "session_title") {
         if (event.title) {
           setChats((prev) =>
@@ -1260,7 +1262,7 @@ function ChatApp() {
           )
         );
         setIsRunning(false);
-        updateBackendMessage(chatId, assistantId, assistantContentRef.current);
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current);
       }
     },
     [setChats]
@@ -1270,6 +1272,7 @@ function ChatApp() {
     setIsRunning(true);
     setError(null);
     assistantContentRef.current = "";
+    assistantToolStepsRef.current = [];
 
     let beforeUsage: ChatMessage["usage"] = {};
     try {
@@ -1285,7 +1288,7 @@ function ChatApp() {
     usageKnownRef.current = usageKnownRef.current || hasBefore;
     usageBeforeRef.current = beforeUsage;
 
-    const assistantId = await createBackendMessage(chatId, "assistant", "");
+    const assistantId = await createBackendMessage(chatId, "assistant", "", [], []);
     assistantIdRef.current = assistantId;
     setMessages((prev) => [
       ...prev,
@@ -1432,7 +1435,7 @@ function ChatApp() {
         )
       );
       if (assistantId && chatId) {
-        updateBackendMessage(chatId, assistantId, assistantContentRef.current).catch(() => {});
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current).catch(() => {});
       }
     },
     onNew: async (message: AppendMessage) => {
@@ -1489,8 +1492,9 @@ function ChatApp() {
       const sourceId = (message as any).sourceId;
       if (!chatId || !sourceId) return;
       const text = getAppendText(message);
+      const existingToolSteps = messages.find((m) => m.id === sourceId)?.toolSteps;
       try {
-        await updateBackendMessage(chatId, sourceId, text);
+        await updateBackendMessage(chatId, sourceId, text, existingToolSteps);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === sourceId ? { ...m, content: text } : m

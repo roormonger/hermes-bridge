@@ -85,6 +85,12 @@ class ChatHistoryStore:
             conn.commit()
         except sqlite3.OperationalError:
             pass
+        # Migration: add tool_steps_json column for persisted chain-of-thought/tool calls.
+        try:
+            conn.execute("ALTER TABLE messages ADD COLUMN tool_steps_json TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
     def _user_where(self, user_id: Optional[str]) -> str:
@@ -135,16 +141,25 @@ class ChatHistoryStore:
         ).fetchone()
         return dict(row) if row else None
 
-    def add_message(self, chat_id: str, user_id: Optional[str], role: str, content: str, images: list[str] | None = None) -> int:
+    def add_message(
+        self,
+        chat_id: str,
+        user_id: Optional[str],
+        role: str,
+        content: str,
+        images: list[str] | None = None,
+        tool_steps: list[dict] | None = None,
+    ) -> int:
         conn = self._conn()
         # Ensure the chat belongs to the user (or is unowned) before adding a message.
         chat = self.get_chat(chat_id, user_id)
         if chat is None:
             raise PermissionError("chat not found or access denied")
         images_json = json.dumps(images) if images else None
+        tool_steps_json = json.dumps(tool_steps) if tool_steps else None
         cur = conn.execute(
-            "INSERT INTO messages (chat_id, role, content, images, created_at) VALUES (?, ?, ?, ?, ?)",
-            (chat_id, role, content, images_json, time.time()),
+            "INSERT INTO messages (chat_id, role, content, images, tool_steps_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (chat_id, role, content, images_json, tool_steps_json, time.time()),
         )
         conn.execute(
             f"UPDATE chats SET updated_at = ? WHERE chat_id = ? AND ({self._user_where(user_id)})",
@@ -153,16 +168,19 @@ class ChatHistoryStore:
         conn.commit()
         return cur.lastrowid
 
-    def update_message(self, message_id: int, user_id: Optional[str], content: str) -> None:
+    def update_message(
+        self, message_id: int, user_id: Optional[str], content: str, tool_steps: list[dict] | None = None
+    ) -> None:
         conn = self._conn()
+        tool_steps_json = json.dumps(tool_steps) if tool_steps else None
         conn.execute(
             f"""
-            UPDATE messages SET content = ?
+            UPDATE messages SET content = ?, tool_steps_json = ?
             WHERE id = ? AND chat_id IN (
                 SELECT chat_id FROM chats WHERE {self._user_where(user_id)}
             )
             """,
-            (content, message_id, *self._user_params(user_id)),
+            (content, tool_steps_json, message_id, *self._user_params(user_id)),
         )
         conn.commit()
 
@@ -186,7 +204,7 @@ class ChatHistoryStore:
         if chat is None:
             return []
         rows = conn.execute(
-            "SELECT id, role, content, images, usage_json, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
+            "SELECT id, role, content, images, usage_json, tool_steps_json, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
             (chat_id,),
         ).fetchall()
         result = []
@@ -196,6 +214,8 @@ class ChatHistoryStore:
             d["images"] = json.loads(raw) if raw else []
             raw_usage = d.pop("usage_json", None)
             d["usage"] = json.loads(raw_usage) if raw_usage else None
+            raw_tool_steps = d.pop("tool_steps_json", None)
+            d["tool_steps"] = json.loads(raw_tool_steps) if raw_tool_steps else []
             result.append(d)
         return result
 
