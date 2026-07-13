@@ -79,8 +79,32 @@ const generateId = () => {
   });
 };
 
-const formatAssistantText = (text: string): string =>
-  text.replace(/MEDIA:\s*(https?:\/\/\S+)/g, "![image]($1)");
+const IMAGE_URL_RE =
+  /(?<![\!\[\]\(\)])https?:\/\/[^\s<>"{}|\\^\[\]]+\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|tiff|avif)(?:\?[^\s<>"{}|\\^\[\]]*)?/gi;
+
+function isInsideCode(text: string, offset: number): boolean {
+  // Inline backticks: odd number of single backticks before offset means inside inline code.
+  const before = text.slice(0, offset);
+  const singleTicks = (before.match(/`/g) || []).length;
+  if (singleTicks % 2 === 1) return true;
+
+  // Triple-backtick code blocks: odd number of fences before offset means inside a block.
+  const tripleFences = (before.match(/```/g) || []).length;
+  return tripleFences % 2 === 1;
+}
+
+const formatAssistantText = (text: string): string => {
+  // Convert explicit MEDIA: markers first.
+  let out = text.replace(/MEDIA:\s*(https?:\/\/\S+)/g, "![image]($1)");
+
+  // Convert standalone HTTP(S) image URLs to markdown images.
+  out = out.replace(IMAGE_URL_RE, (match, _ext, offset, string) => {
+    if (isInsideCode(string, offset)) return match;
+    return `![image](${match})`;
+  });
+
+  return out;
+};
 
 const usageDelta = (before: ChatMessage["usage"], after: ChatMessage["usage"]): ChatMessage["usage"] | undefined => {
   if (!after) return undefined;
