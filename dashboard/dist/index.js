@@ -320,11 +320,19 @@
       ),
       error && h("div", { className: "rounded-md bg-destructive/15 p-3 text-destructive text-sm" }, error),
       h(Card, null,
-        h(CardHeader, null,
-          h(CardTitle, null, "Daemon Status"),
-          h("p", { className: "text-sm text-muted-foreground" }, "Current bridge process state and configuration.")
+        h(CardHeader, { className: "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between" },
+          h("div", null,
+            h(CardTitle, null, "Daemon Status"),
+            h("p", { className: "text-sm text-muted-foreground" }, "Current bridge process state and configuration.")
+          ),
+          h("div", { className: "flex flex-wrap gap-2" },
+            h(Button, { onClick: onStart, disabled: loading || status?.running, size: "sm" }, "Start"),
+            h(Button, { onClick: onStop, disabled: loading || !status?.running, size: "sm" }, "Stop"),
+            h(Button, { onClick: onRestart, disabled: loading, size: "sm", variant: "outline" }, "Restart"),
+            h(Button, { onClick: onInstallDeps, disabled: loading, size: "sm", variant: "outline" }, "Install Dependencies")
+          )
         ),
-        h(CardContent, { className: "space-y-4" },
+        h(CardContent, null,
           h("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-4 text-sm" },
             h("div", null,
               h("div", { className: "text-muted-foreground" }, "Running"),
@@ -341,27 +349,23 @@
             h("div", null,
               h("div", { className: "text-muted-foreground" }, "Port"),
               h("div", { className: "font-medium" }, status?.config?.port ?? "—")
+            ),
+            h("div", null,
+              h("div", { className: "text-muted-foreground" }, "Bind Address"),
+              h("div", { className: "font-medium" }, status?.config?.host ?? "—")
+            ),
+            h("div", null,
+              h("div", { className: "text-muted-foreground" }, "Log Level"),
+              h("div", { className: "font-medium" }, status?.config?.log_level ?? "—")
+            ),
+            h("div", null,
+              h("div", { className: "text-muted-foreground" }, "Auto Start"),
+              h("div", { className: "font-medium" }, status?.config?.auto_start ? "Yes" : "No")
+            ),
+            h("div", null,
+              h("div", { className: "text-muted-foreground" }, "Debug"),
+              h("div", { className: "font-medium" }, status?.config?.debug ? "Yes" : "No")
             )
-          ),
-          h("div", null,
-            h("div", { className: "text-muted-foreground text-sm mb-2" }, "Config"),
-            h("pre", { className: "rounded-md bg-muted p-3 text-xs overflow-auto" },
-              status ? JSON.stringify(status.config, null, 2) : "Loading..."
-            )
-          )
-        )
-      ),
-      h(Card, null,
-        h(CardHeader, null,
-          h(CardTitle, null, "Controls"),
-          h("p", { className: "text-sm text-muted-foreground" }, "Start, stop, or restart the Hermes Chat daemon.")
-        ),
-        h(CardContent, null,
-          h("div", { className: "flex flex-wrap gap-2" },
-            h(Button, { onClick: onStart, disabled: loading || status?.running }, "Start"),
-            h(Button, { onClick: onStop, disabled: loading || !status?.running }, "Stop"),
-            h(Button, { onClick: onRestart, disabled: loading }, "Restart"),
-            h(Button, { onClick: onInstallDeps, disabled: loading }, "Install Dependencies")
           )
         )
       ),
