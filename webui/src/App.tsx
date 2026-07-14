@@ -1001,6 +1001,7 @@ function ChatApp() {
   const threadUsageRef = useRef<ChatMessage["usage"]>({});
   const usageBeforeRef = useRef<ChatMessage["usage"]>({});
   const usageKnownRef = useRef(false);
+  const rafPendingRef = useRef(false);
 
   useEffect(() => {
     currentChatIdRef.current = currentChatId;
@@ -1205,13 +1206,18 @@ function ChatApp() {
         assistantContentRef.current = formatAssistantText(
           assistantContentRef.current + event.text
         );
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? { ...m, content: assistantContentRef.current }
-              : m
-          )
-        );
+        if (!rafPendingRef.current) {
+          rafPendingRef.current = true;
+          requestAnimationFrame(() => {
+            rafPendingRef.current = false;
+            const content = assistantContentRef.current;
+            const id = assistantIdRef.current;
+            if (!id) return;
+            setMessages((prev) =>
+              prev.map((m) => m.id === id ? { ...m, content } : m)
+            );
+          });
+        }
       } else if (event.type === "tool_start") {
         assistantToolStepsRef.current = [
           ...(assistantToolStepsRef.current ?? []),

@@ -136,52 +136,68 @@ export const speakText = async (text: string, lang?: string, voice?: string): Pr
   return URL.createObjectURL(blob);
 };
 
+const _SSE_MAX_RETRIES = 5;
+const _SSE_BASE_DELAY_MS = 500;
+
 export const streamEvents = async (
   url: string,
   body: object,
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,
 ) => {
-  const token = getToken();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!res.ok) throw new Error(res.statusText);
-  const reader = res.body?.getReader();
-  if (!reader) throw new Error("no response body");
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith("data: ")) {
-          const data = trimmed.slice(6);
-          if (data === "[DONE]") continue;
-          try {
-            const event = JSON.parse(data) as SseEvent;
-            onEvent(event);
-          } catch (e) {
-            console.error("failed to parse SSE event", data, e);
+  let attempt = 0;
+  while (true) {
+    if (signal?.aborted) return;
+    const token = getToken();
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+      if (!res.ok) throw new Error(res.statusText);
+      reader = res.body?.getReader();
+      if (!reader) throw new Error("no response body");
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("data: ")) {
+            const data = trimmed.slice(6);
+            if (data === "[DONE]") continue;
+            try {
+              const event = JSON.parse(data) as SseEvent;
+              onEvent(event);
+            } catch (e) {
+              console.error("failed to parse SSE event", data, e);
+            }
           }
         }
       }
+      return; // clean finish
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      attempt++;
+      if (attempt > _SSE_MAX_RETRIES) throw e;
+      const delay = _SSE_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      console.warn(`[SSE] network error, retrying in ${delay}ms (attempt ${attempt}/${_SSE_MAX_RETRIES})`, e);
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(resolve, delay);
+        signal?.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+      });
+    } finally {
+      reader?.cancel().catch(() => {});
     }
-  } catch (e) {
-    if ((e as Error).name === "AbortError") return;
-    throw e;
-  } finally {
-    reader.cancel().catch(() => {});
   }
 };

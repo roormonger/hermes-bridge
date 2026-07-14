@@ -49,13 +49,63 @@ import {
   VolumeXIcon,
   WrenchIcon,
 } from "lucide-react";
-import { type FC, type ReactNode, useState, useCallback, useEffect, useRef, Children, createContext, useContext } from "react";
+import { type FC, type ReactNode, useState, useCallback, useEffect, useRef, Children, createContext, useContext, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { getToken } from "../../api";
 import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
 import type { VoiceCapabilities } from "../../hooks/useVoiceCapabilities";
 
 const VoiceCapsContext = createContext<VoiceCapabilities>({ ttsAvailable: true, sttAvailable: true, ttsVoice: undefined });
+
+// ---------------------------------------------------------------------------
+// Slash command autocomplete
+// ---------------------------------------------------------------------------
+
+const SLASH_COMMANDS = [
+  { command: "/clear",    description: "Clear and start a new conversation" },
+  { command: "/compress", description: "Compress context (optionally: /compress <topic>)" },
+  { command: "/model",    description: "Switch model (e.g. /model gpt-4o)" },
+  { command: "/usage",    description: "Show token usage for this session" },
+  { command: "/help",     description: "Show available slash commands" },
+];
+
+const SlashCommandMenu: FC<{
+  query: string;
+  onSelect: (command: string) => void;
+  activeIndex: number;
+  setActiveIndex: (i: number) => void;
+}> = ({ query, onSelect, activeIndex, setActiveIndex }) => {
+  const matches = useMemo(
+    () => SLASH_COMMANDS.filter((c) => c.command.startsWith(query.toLowerCase())),
+    [query]
+  );
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, setActiveIndex]);
+
+  if (matches.length === 0) return null;
+
+  return (
+    <div className="absolute bottom-full left-0 mb-1 z-50 w-72 rounded-lg border border-border bg-popover shadow-lg overflow-hidden">
+      {matches.map((c, i) => (
+        <button
+          key={c.command}
+          type="button"
+          onMouseEnter={() => setActiveIndex(i)}
+          onMouseDown={(e) => { e.preventDefault(); onSelect(c.command); }}
+          className={cn(
+            "flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm transition-colors",
+            i === activeIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+          )}
+        >
+          <span className="font-mono font-medium">{c.command}</span>
+          <span className="text-xs text-muted-foreground">{c.description}</span>
+        </button>
+      ))}
+    </div>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Lightbox
@@ -350,10 +400,54 @@ const Composer: FC<{
   onAutoSpeakToggle?: () => void;
 }> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle }) => {
   const composerRuntime = useComposerRuntime();
+  const [slashQuery, setSlashQuery] = useState<string | null>(null);
+  const [slashActive, setSlashActive] = useState(0);
+
+  const slashMatches = useMemo(
+    () => slashQuery !== null ? SLASH_COMMANDS.filter((c) => c.command.startsWith(slashQuery.toLowerCase())) : [],
+    [slashQuery]
+  );
+
+  const applySlashCommand = useCallback((command: string) => {
+    composerRuntime.setText(command + " ");
+    setSlashQuery(null);
+  }, [composerRuntime]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashQuery !== null && slashMatches.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashActive((i) => Math.min(i + 1, slashMatches.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashActive((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey)) {
+        e.preventDefault();
+        applySlashCommand(slashMatches[slashActive].command);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSlashQuery(null);
+        return;
+      }
+    }
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       composerRuntime.send();
+    }
+  };
+
+  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const val = (e.target as HTMLTextAreaElement).value;
+    if (val.startsWith("/") && !val.includes(" ")) {
+      setSlashQuery(val);
+    } else {
+      setSlashQuery(null);
     }
   };
 
@@ -362,8 +456,16 @@ const Composer: FC<{
       <ComposerPrimitive.AttachmentDropzone asChild>
         <div
           data-slot="aui_composer-shell"
-          className="border-border/60 data-[dragging=true]:border-ring focus-within:border-border dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30 flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:shadow-[0_6px_24px_-8px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.05)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))] dark:shadow-none"
+          className="border-border/60 data-[dragging=true]:border-ring focus-within:border-border dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30 relative flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:shadow-[0_6px_24px_-8px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.05)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))] dark:shadow-none"
         >
+          {slashQuery !== null && slashMatches.length > 0 && (
+            <SlashCommandMenu
+              query={slashQuery}
+              onSelect={applySlashCommand}
+              activeIndex={slashActive}
+              setActiveIndex={setSlashActive}
+            />
+          )}
           <ComposerAttachments />
           <ComposerPrimitive.Input
             placeholder="Send a message..."
@@ -372,6 +474,7 @@ const Composer: FC<{
             autoFocus
             aria-label="Message input"
             onKeyDown={handleKeyDown}
+            onInput={handleInput}
           />
           <ComposerAction onUndo={onUndo} contextWindow={contextWindow} threadUsage={threadUsage} autoSpeak={autoSpeak} onAutoSpeakToggle={onAutoSpeakToggle} />
         </div>
