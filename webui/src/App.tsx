@@ -645,6 +645,7 @@ function ChatSidebar({
   onToggleTheme,
   ttsVoice,
   onTtsVoiceChange,
+  voiceCaps,
   collapsed,
   onToggleCollapse,
   mobileOpen,
@@ -662,6 +663,7 @@ function ChatSidebar({
   onToggleTheme: () => void;
   ttsVoice: string;
   onTtsVoiceChange: (v: string) => void;
+  voiceCaps: { ttsAvailable: boolean; sttAvailable: boolean };
   collapsed: boolean;
   onToggleCollapse: () => void;
   mobileOpen: boolean;
@@ -896,6 +898,7 @@ function ChatSidebar({
                 {theme === "dark" ? "Switch to Light" : "Switch to Dark"}
               </button>
             </div>
+            {voiceCaps.ttsAvailable && (
             <div className="p-3 border-b">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Voice</p>
               <div className="flex flex-col gap-1">
@@ -914,6 +917,7 @@ function ChatSidebar({
                 ))}
               </div>
             </div>
+            )}
             <div className="p-3">
               <button
                 onClick={() => { setProfileOpen(false); onLogout(); }}
@@ -1592,6 +1596,7 @@ function ChatApp() {
         onToggleTheme={toggleTheme}
         ttsVoice={ttsVoice}
         onTtsVoiceChange={setTtsVoice}
+        voiceCaps={voiceCaps}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         mobileOpen={mobileSidebarOpen}

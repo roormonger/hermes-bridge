@@ -8,7 +8,7 @@ export interface VoiceCapabilities {
 }
 
 export function useVoiceCapabilities(): VoiceCapabilities {
-  const [caps, setCaps] = useState<VoiceCapabilities>({ ttsAvailable: false, sttAvailable: false });
+  const [caps, setCaps] = useState<VoiceCapabilities>({ ttsAvailable: true, sttAvailable: true });
 
   useEffect(() => {
     getVoiceDeps()
@@ -24,7 +24,8 @@ export function useVoiceCapabilities(): VoiceCapabilities {
         }));
       })
       .catch(() => {
-        setCaps((prev) => ({ ttsAvailable: false, sttAvailable: false, ttsVoice: prev.ttsVoice }));
+        // On error leave optimistic values as-is so buttons stay visible
+        setCaps((prev) => prev);
       });
   }, []);
 
