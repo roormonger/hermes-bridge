@@ -502,25 +502,18 @@
           !voiceDepsAvailable.tts && !voiceDepsAvailable.stt && h("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700 p-3 text-sm text-yellow-800 dark:text-yellow-200" },
             "⚠ Voice dependencies are not installed. Install them above to enable voice features."
           ),
-          h("div", { className: "flex items-center justify-between rounded-md border px-4 py-3" },
+          h("label", { className: "flex items-center justify-between rounded-md border px-4 py-3 cursor-pointer" },
             h("div", null,
               h("div", { className: "text-sm font-medium" }, "Enable Voice"),
               h("div", { className: "text-xs text-muted-foreground" }, voiceDepsAvailable.tts || voiceDepsAvailable.stt ? "Allow users to use voice input and output." : "Requires voice dependencies to be installed.")
             ),
-            h("button", {
-              type: "button",
-              role: "switch",
-              "aria-checked": voiceEnabled,
+            h("input", {
+              type: "checkbox",
+              checked: voiceEnabled,
               disabled: !voiceDepsAvailable.tts && !voiceDepsAvailable.stt,
-              onClick: () => setVoiceEnabled(v => !v),
-              className: "relative inline-flex h-6 w-11 items-center rounded-full focus:outline-none " + ((!voiceDepsAvailable.tts && !voiceDepsAvailable.stt) ? " opacity-40 cursor-not-allowed" : " cursor-pointer"),
-              style: { backgroundColor: voiceEnabled ? "var(--primary)" : "var(--muted)", transition: "background-color 0.2s" }
-            },
-              h("span", {
-                className: "inline-block h-4 w-4 rounded-full bg-white shadow",
-                style: { transform: voiceEnabled ? "translateX(1.375rem)" : "translateX(0.125rem)", transition: "transform 0.2s" }
-              })
-            )
+              onChange: (e) => setVoiceEnabled(e.target.checked),
+              className: "h-4 w-4 cursor-pointer"
+            })
           ),
           h("div", { className: "flex flex-col gap-2" },
             h("label", { className: "text-sm font-medium" }, "Default TTS Voice"),
