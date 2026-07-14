@@ -30,7 +30,7 @@ _ERROR_LOG = _PLUGIN_ROOT / "run" / "dashboard-api-error.log"
 from bridge.analytics import get_models_analytics as _get_models_analytics
 from bridge.config import auth_secret, load_config, update_config
 from bridge.daemon import LOG_FILE, is_running, logs, restart, start, status, stop
-from bridge.dependencies import check_dependencies, install_dependencies
+from bridge.dependencies import check_dependencies, check_optional_dependencies, install_dependencies
 
 _DEFAULT_HERMES_DASHBOARD_URL = "http://127.0.0.1:9119"
 
@@ -166,7 +166,8 @@ async def download_logs():
 async def get_deps() -> dict:
     try:
         missing = check_dependencies()
-        return {"missing": missing, "ok": not missing}
+        missing_optional = check_optional_dependencies()
+        return {"missing": missing, "ok": not missing, "missing_optional": missing_optional}
     except Exception as exc:
         _handle_exc(exc)
 

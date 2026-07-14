@@ -21,7 +21,7 @@ if str(_PLUGIN_ROOT) not in sys.path:
 
 from bridge.config import auth_secret, config_path, load_config, update_config
 from bridge.daemon import is_running, logs, restart, start, status, stop
-from bridge.dependencies import check_dependencies, install_dependencies
+from bridge.dependencies import check_dependencies, check_optional_dependencies, install_dependencies
 
 
 def _ensure_config() -> None:
@@ -249,8 +249,10 @@ def _do_register(ctx) -> None:
         handler=_tool_users,
     )
 
-    # Auto-install missing dependencies on every plugin load so the first
+    # Auto-install missing required dependencies on every plugin load so the first
     # `hermes plugins install` just works without a separate install-deps step.
+    # Optional deps (voice support) are NOT auto-installed — the dashboard shows
+    # a warning and the user can install them via the "Install Voice" button.
     missing = check_dependencies()
     if missing:
         print(f"[hermes-chat] Installing missing dependencies: {', '.join(missing)} ...")
@@ -264,6 +266,13 @@ def _do_register(ctx) -> None:
         else:
             print("[hermes-chat] Dependencies installed successfully.")
             missing = []
+
+    # Notify about missing optional deps (voice support) without auto-installing.
+    missing_optional = check_optional_dependencies()
+    if missing_optional:
+        features = ", ".join(d["feature"] for d in missing_optional)
+        print(f"[hermes-chat] Optional dependencies not installed: {features}")
+        print("[hermes-chat] Install via the dashboard → Install Voice button, or run `hermes hermes-chat install-deps`.")
 
     # Auto-start on plugin load if configured. This is best-effort; Hermes
     # plugins are loaded during CLI startup, so the daemon survives beyond

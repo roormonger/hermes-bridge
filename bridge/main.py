@@ -829,6 +829,9 @@ async def transcribe_audio(file: UploadFile, current_user: dict = Depends(get_cu
 
         text = transcribe(tmp_path)
         return {"text": text}
+    except ImportError as e:
+        logger.error("Voice dependencies not installed: %s", e)
+        raise HTTPException(status_code=503, detail="Voice support not installed. Install dependencies via the dashboard → Install Voice button.")
     except Exception as e:
         logger.error("Transcription failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
@@ -849,6 +852,9 @@ async def speak_text(request: SpeakRequest, current_user: dict = Depends(get_cur
             filename="speech.wav",
             background=None,
         )
+    except ImportError as e:
+        logger.error("Voice dependencies not installed: %s", e)
+        raise HTTPException(status_code=503, detail="Voice support not installed. Install dependencies via the dashboard → Install Voice button.")
     except Exception as e:
         logger.error("TTS failed: %s", e)
         raise HTTPException(status_code=500, detail=f"TTS failed: {e}")

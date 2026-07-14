@@ -69,6 +69,7 @@
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null);
     const [missingDeps, setMissingDeps] = useState([]);
+    const [missingOptionalDeps, setMissingOptionalDeps] = useState([]);
     const [settingsHost, setSettingsHost] = useState("");
     const [settingsPort, setSettingsPort] = useState("");
     const [pendingRestart, setPendingRestart] = useState(false);
@@ -97,6 +98,7 @@
       try {
         const data = await fetchJSON("/deps");
         setMissingDeps(data.missing || []);
+        setMissingOptionalDeps(data.missing_optional || []);
       } catch (_) {}
     }, []);
 
@@ -309,6 +311,14 @@
           h("p", { className: "text-yellow-600 dark:text-yellow-400 text-xs mt-1" }, "The daemon cannot start until these are installed.")
         ),
         h(Button, { onClick: onInstallDeps, disabled: loading, size: "sm", variant: "outline" }, loading ? "Installing..." : "Install Now")
+      ),
+      missingOptionalDeps.length > 0 && missingDeps.length === 0 && h("div", { className: "rounded-md border border-blue-400 bg-blue-50 dark:bg-blue-950 dark:border-blue-700 p-3 text-sm flex items-start justify-between gap-3" },
+        h("div", null,
+          h("span", { className: "font-semibold text-blue-800 dark:text-blue-200" }, "Voice support not installed: "),
+          h("span", { className: "text-blue-700 dark:text-blue-300" }, missingOptionalDeps.map(d => d.requirement).join(", ")),
+          h("p", { className: "text-blue-600 dark:text-blue-400 text-xs mt-1" }, missingOptionalDeps.map(d => d.feature).join(", ") + ". Install to enable voice input and output.")
+        ),
+        h(Button, { onClick: onInstallDeps, disabled: loading, size: "sm", variant: "outline" }, loading ? "Installing..." : "Install Voice")
       ),
       notice && h("div", { className: "rounded-md border border-green-400 bg-green-50 dark:bg-green-950 dark:border-green-700 p-3 text-sm flex items-center justify-between gap-3" },
         h("span", { className: "text-green-800 dark:text-green-200" }, "✓ " + notice),

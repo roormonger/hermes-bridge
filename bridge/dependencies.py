@@ -27,6 +27,13 @@ REQUIRED_PACKAGES = [
     ("bcrypt", "bcrypt>=4.1"),
 ]
 
+OPTIONAL_PACKAGES = [
+    ("faster_whisper", "faster-whisper>=1.0", "Voice input (speech-to-text)"),
+    ("piper", "piper-tts>=1.2", "Voice output (text-to-speech)"),
+    ("imageio_ffmpeg", "imageio-ffmpeg>=0.5", "Audio conversion (ffmpeg)"),
+    ("langdetect", "langdetect>=1.0", "Automatic language detection"),
+]
+
 
 def check_dependencies() -> list[str]:
     """Return a list of missing requirement spec strings.
@@ -43,6 +50,20 @@ def check_dependencies() -> list[str]:
     return missing
 
 
+def check_optional_dependencies() -> list[dict]:
+    """Return a list of missing optional packages with metadata.
+
+    Each entry is {"requirement": str, "feature": str}.
+    """
+    missing: list[dict] = []
+    for module, requirement, feature in OPTIONAL_PACKAGES:
+        try:
+            importlib.import_module(module)
+        except ImportError:
+            missing.append({"requirement": requirement, "feature": feature})
+    return missing
+
+
 def requirements_file() -> Optional[Path]:
     """Return the path to the plugin's requirements.txt if it exists."""
     path = _plugin_dir() / "requirements.txt"
@@ -56,7 +77,9 @@ def install_dependencies(auto: bool = False) -> dict:
     all packages are already present. Set `auto=True` to actually run pip.
     """
     missing = check_dependencies()
-    if not missing:
+    missing_optional = check_optional_dependencies()
+
+    if not missing and not missing_optional:
         return {"status": "ok", "installed": [], "message": "All dependencies are already present."}
 
     req_file = requirements_file()
@@ -68,10 +91,11 @@ def install_dependencies(auto: bool = False) -> dict:
         }
 
     if not auto:
+        all_missing = missing + [d["requirement"] for d in missing_optional]
         return {
             "status": "pending",
-            "missing": missing,
-            "message": f"Run with auto=True to install: {', '.join(missing)}",
+            "missing": all_missing,
+            "message": f"Run with auto=True to install: {', '.join(all_missing)}",
         }
 
     cmd = [sys.executable, "-m", "pip", "install", "-r", str(req_file)]
@@ -86,20 +110,20 @@ def install_dependencies(auto: bool = False) -> dict:
         if result.returncode != 0:
             return {
                 "status": "error",
-                "installed": missing,
+                "installed": missing + [d["requirement"] for d in missing_optional],
                 "message": result.stderr or result.stdout or "pip install failed",
                 "command": " ".join(cmd),
             }
         return {
             "status": "installed",
-            "installed": missing,
+            "installed": missing + [d["requirement"] for d in missing_optional],
             "message": result.stdout.strip() or "Dependencies installed successfully.",
             "command": " ".join(cmd),
         }
     except Exception as exc:  # pragma: no cover - environment issues only
         return {
             "status": "error",
-            "installed": missing,
+            "installed": missing + [d["requirement"] for d in missing_optional],
             "message": str(exc),
             "command": " ".join(cmd),
         }
