@@ -49,10 +49,13 @@ import {
   VolumeXIcon,
   WrenchIcon,
 } from "lucide-react";
-import { type FC, type ReactNode, useState, useCallback, useEffect, useRef, Children } from "react";
+import { type FC, type ReactNode, useState, useCallback, useEffect, useRef, Children, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import { getToken } from "../../api";
 import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
+import type { VoiceCapabilities } from "../../hooks/useVoiceCapabilities";
+
+const VoiceCapsContext = createContext<VoiceCapabilities>({ ttsAvailable: true, sttAvailable: true });
 
 // ---------------------------------------------------------------------------
 // Lightbox
@@ -218,10 +221,13 @@ export const Thread: FC<{
   threadUsage?: ThreadTokenUsage;
   autoSpeak?: boolean;
   onAutoSpeakToggle?: () => void;
-}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle }) => {
+  voiceCaps?: VoiceCapabilities;
+}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle, voiceCaps }) => {
+  const caps = voiceCaps ?? { ttsAvailable: true, sttAvailable: true };
   const isEmpty = useAuiState(isNewChatView);
 
   return (
+    <VoiceCapsContext.Provider value={caps}>
     <ThreadPrimitive.Root
       className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
       style={{
@@ -272,6 +278,7 @@ export const Thread: FC<{
         </div>
       </ThreadPrimitive.Viewport>
     </ThreadPrimitive.Root>
+    </VoiceCapsContext.Provider>
   );
 };
 
@@ -391,6 +398,7 @@ const ComposerAction: FC<{
   }, [composerText, composerRuntime]);
 
   const { recording, transcribing, start, stop } = useVoiceRecorder(handleTranscript);
+  const voiceCaps = useContext(VoiceCapsContext);
 
   const handleMicClick = () => {
     if (recording) stop();
@@ -401,7 +409,7 @@ const ComposerAction: FC<{
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="flex items-center gap-1">
         <ComposerAddAttachment />
-        {onAutoSpeakToggle && (
+        {onAutoSpeakToggle && voiceCaps.ttsAvailable && (
           <TooltipIconButton
             tooltip={autoSpeak ? "Auto-speak on (click to turn off)" : "Auto-speak off (click to turn on)"}
             side="top"
@@ -439,7 +447,7 @@ const ComposerAction: FC<{
             <Undo2Icon className="size-4" />
           </TooltipIconButton>
         )}
-        <TooltipIconButton
+        {voiceCaps.sttAvailable && <TooltipIconButton
           tooltip={recording ? "Stop recording" : transcribing ? "Transcribing..." : "Voice input"}
           side="bottom"
           type="button"
@@ -460,7 +468,7 @@ const ComposerAction: FC<{
           ) : (
             <MicIcon className="size-4" />
           )}
-        </TooltipIconButton>
+        </TooltipIconButton>}
         <AuiIf condition={(s) => !s.thread.isRunning}>
           <ComposerPrimitive.Send asChild>
             <TooltipIconButton
@@ -651,6 +659,7 @@ const AssistantMessage: FC = () => {
 };
 
 const AssistantActionBar: FC = () => {
+  const voiceCaps = useContext(VoiceCapsContext);
   const [speaking, setSpeaking] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
@@ -692,7 +701,7 @@ const AssistantActionBar: FC = () => {
       autohide="not-last"
       className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in col-start-3 row-start-2 -ms-1 flex gap-1 duration-200"
     >
-      <TooltipIconButton
+      {voiceCaps.ttsAvailable && <TooltipIconButton
         tooltip={speaking ? "Stop speaking" : "Read aloud"}
         onClick={handleSpeak}
       >
@@ -701,7 +710,7 @@ const AssistantActionBar: FC = () => {
         ) : (
           <Volume2Icon className="size-4" />
         )}
-      </TooltipIconButton>
+      </TooltipIconButton>}
       <ActionBarPrimitive.Copy asChild>
         <TooltipIconButton tooltip="Copy">
           <AuiIf condition={(s) => s.message.isCopied}>

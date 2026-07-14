@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatUsage, saveChatUsage, saveMessageUsage, setModel, undoLastTurn, streamEvents, speakText, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
 import { useAutoSpeak } from "./hooks/useAutoSpeak";
+import { useVoiceCapabilities } from "./hooks/useVoiceCapabilities";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -907,6 +908,7 @@ function ChatApp() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const { autoSpeak, toggleAutoSpeak } = useAutoSpeak();
+  const voiceCaps = useVoiceCapabilities();
   const autoSpeakRef = useRef(autoSpeak);
   autoSpeakRef.current = autoSpeak;
   const [pendingGate, setPendingGate] = useState<Gate | null>(null);
@@ -1209,7 +1211,7 @@ function ChatApp() {
         );
         setIsRunning(false);
         updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current);
-        if (autoSpeakRef.current && assistantContentRef.current.trim()) {
+        if (autoSpeakRef.current && voiceCaps.ttsAvailable && assistantContentRef.current.trim()) {
           speakText(assistantContentRef.current).then((url) => {
             const audio = new Audio(url);
             audio.onended = () => URL.revokeObjectURL(url);
@@ -1618,7 +1620,7 @@ function ChatApp() {
         )}
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <AssistantRuntimeProvider runtime={runtime}>
-            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} />
+            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} voiceCaps={voiceCaps} />
           </AssistantRuntimeProvider>
         </div>
         <GateDialog pendingGate={pendingGate} onChoice={handleGateChoice} />
