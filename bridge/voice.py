@@ -9,7 +9,9 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import sys
 import tempfile
+import wave
 from pathlib import Path
 from typing import Optional
 
@@ -111,6 +113,29 @@ def transcribe(audio_path: Path) -> str:
         wav_path.unlink(missing_ok=True)
 
 
+def _get_voices_dir() -> Path:
+    """Return the directory where Piper voice models are cached."""
+    voices_dir = Path.home() / ".local" / "share" / "piper" / "voices"
+    voices_dir.mkdir(parents=True, exist_ok=True)
+    return voices_dir
+
+
+def _get_voice_model_path(voice_name: str) -> Path:
+    """Return the .onnx path for a Piper voice, downloading if needed."""
+    voices_dir = _get_voices_dir()
+    onnx_path = voices_dir / f"{voice_name}.onnx"
+    if not onnx_path.exists():
+        logger.info("Downloading Piper voice '%s'...", voice_name)
+        result = subprocess.run(
+            [sys.executable, "-m", "piper.download_voices", voice_name, "--data-dir", str(voices_dir)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to download Piper voice '{voice_name}': {result.stderr or result.stdout}")
+    return onnx_path
+
+
 def synthesize(text: str, lang: Optional[str] = None) -> Path:
     """Synthesize speech from text using Piper TTS. Returns path to output wav."""
     if not text.strip():
@@ -120,20 +145,19 @@ def synthesize(text: str, lang: Optional[str] = None) -> Path:
         lang = _detect_language(text)
 
     voice_name = _get_piper_voice(lang)
-
-    # Piper outputs to a temp file
     out_path = Path(tempfile.mktemp(suffix=".wav"))
 
     try:
-        from piper.voice import PiperVoice
-        from piper.download import ensure_voice_exists, get_voices_dir
+        from piper import PiperVoice
 
-        voices_dir = get_voices_dir()
-        model_path = ensure_voice_exists(voice_name, voices_dir)
+        model_path = _get_voice_model_path(voice_name)
         voice = PiperVoice.load(str(model_path))
 
-        with open(out_path, "wb") as f:
-            voice.synthesize(text, f)
+        with wave.open(str(out_path), "wb") as wav_file:
+            if hasattr(voice, "synthesize_wav"):
+                voice.synthesize_wav(text, wav_file)
+            else:
+                voice.synthesize(text, wav_file)
 
         logger.info("Synthesized %d chars in language '%s' with voice '%s'", len(text), lang, voice_name)
         return out_path

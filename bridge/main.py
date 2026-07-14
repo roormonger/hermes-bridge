@@ -858,8 +858,8 @@ async def speak_text(request: SpeakRequest, current_user: dict = Depends(get_cur
             background=None,
         )
     except ImportError as e:
-        logger.error("Voice dependencies not installed: %s", e)
-        raise HTTPException(status_code=503, detail="Voice support not installed. Install dependencies via the dashboard → Install Voice button.")
+        logger.error("Voice dependency import failed: %s", e)
+        raise HTTPException(status_code=503, detail=f"Voice dependency not available: {e}. Try reinstalling via the dashboard → Install Voice button.")
     except Exception as e:
         logger.error("TTS failed: %s", e)
         raise HTTPException(status_code=500, detail=f"TTS failed: {e}")
