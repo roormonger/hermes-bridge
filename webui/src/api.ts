@@ -99,15 +99,34 @@ export const transcribeAudio = async (blob: Blob): Promise<string> => {
   return data.text as string;
 };
 
+function stripMarkdown(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, "")              // fenced code blocks
+    .replace(/`[^`]*`/g, "")                      // inline code
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "")       // images
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")      // links → label only
+    .replace(/^#{1,6}\s+/gm, "")                  // headings
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")           // bold
+    .replace(/(\*|_)(.*?)\1/g, "$2")              // italic
+    .replace(/~~(.*?)~~/g, "$1")                  // strikethrough
+    .replace(/^\s*[-*+]\s+/gm, "")               // unordered list markers
+    .replace(/^\s*\d+\.\s+/gm, "")               // ordered list markers
+    .replace(/^\s*>\s+/gm, "")                    // blockquotes
+    .replace(/^[-*_]{3,}\s*$/gm, "")             // horizontal rules
+    .replace(/\n{3,}/g, "\n\n")                   // collapse excess newlines
+    .trim();
+}
+
 export const speakText = async (text: string, lang?: string): Promise<string> => {
   const token = getToken();
+  const clean = stripMarkdown(text);
   const res = await fetch("/v1/audio/speak", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ text, lang }),
+    body: JSON.stringify({ text: clean, lang }),
   });
   if (!res.ok) throw new Error(await res.text() || res.statusText);
   const blob = await res.blob();
