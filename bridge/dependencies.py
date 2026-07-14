@@ -29,7 +29,6 @@ REQUIRED_PACKAGES = [
 
 OPTIONAL_PACKAGES = [
     ("faster_whisper", "faster-whisper>=1.0", "Voice input (speech-to-text)"),
-    ("edge_tts", "edge-tts>=6.1", "Voice output (text-to-speech)"),
     ("imageio_ffmpeg", "imageio-ffmpeg>=0.5", "Audio conversion (ffmpeg)"),
     ("langdetect", "langdetect>=1.0", "Automatic language detection"),
 ]
