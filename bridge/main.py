@@ -850,11 +850,13 @@ async def speak_text(request: SpeakRequest, current_user: dict = Depends(get_cur
     try:
         from .voice import synthesize
 
-        wav_path = synthesize(request.text, lang=request.lang)
+        wav_path = await synthesize(request.text, lang=request.lang)
+        media_type = "audio/mpeg" if str(wav_path).endswith(".mp3") else "audio/wav"
+        filename = "speech.mp3" if str(wav_path).endswith(".mp3") else "speech.wav"
         return FileResponse(
             str(wav_path),
-            media_type="audio/wav",
-            filename="speech.wav",
+            media_type=media_type,
+            filename=filename,
             background=None,
         )
     except ImportError as e:

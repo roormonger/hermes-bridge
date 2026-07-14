@@ -9,9 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
-import sys
 import tempfile
-import wave
 from pathlib import Path
 from typing import Optional
 
@@ -22,29 +20,32 @@ logger = logging.getLogger("hermes_bridge.voice")
 _whisper_model = None
 _piper_voices: dict[str, str] = {}
 
-# --- Piper voice mapping (ISO 639-1 → Piper voice name) ----------------------
+# --- Edge TTS voice mapping (ISO 639-1 → Edge Neural voice name) -------------
 
-PIPER_VOICE_MAP: dict[str, str] = {
-    "en": "en_US-lessac-medium",
-    "es": "es_ES-carlfm-x_low",
-    "fr": "fr_FR-siwis-medium",
-    "de": "de_DE-thorsten-medium",
-    "it": "it_IT-riccardo-x_low",
-    "pt": "pt_BR-faber-medium",
-    "nl": "nl_NL-mls-medium",
-    "pl": "pl_PL-gosia-medium",
-    "ru": "ru_RU-dmitri-medium",
-    "tr": "tr_TR-dfki-medium",
-    "zh": "zh_CN-huayan-medium",
-    "ar": "ar_JO-kareem-medium",
-    "cs": "cs_CZ-jirka-medium",
-    "el": "el_GR-rapunzelina-medium",
-    "fi": "fi_FI-harri-medium",
-    "hu": "hu_HU-anna-medium",
-    "no": "no_NO-talesyntese-medium",
-    "ro": "ro_RO-mihai-medium",
-    "sv": "sv_SE-nst-medium",
-    "vi": "vi_VN-vivos-x_low",
+EDGE_VOICE_MAP: dict[str, str] = {
+    "en": "en-US-AriaNeural",
+    "es": "es-ES-ElviraNeural",
+    "fr": "fr-FR-DeniseNeural",
+    "de": "de-DE-KatjaNeural",
+    "it": "it-IT-ElsaNeural",
+    "pt": "pt-BR-FranciscaNeural",
+    "nl": "nl-NL-ColetteNeural",
+    "pl": "pl-PL-ZofiaNeural",
+    "ru": "ru-RU-SvetlanaNeural",
+    "tr": "tr-TR-EmelNeural",
+    "zh": "zh-CN-XiaoxiaoNeural",
+    "ar": "ar-SA-ZariyahNeural",
+    "cs": "cs-CZ-VlastaNeural",
+    "el": "el-GR-AthinaNeural",
+    "fi": "fi-FI-SelmaNeural",
+    "hu": "hu-HU-NoemiNeural",
+    "no": "nb-NO-PernilleNeural",
+    "ro": "ro-RO-AlinaNeural",
+    "sv": "sv-SE-SofieNeural",
+    "vi": "vi-VN-HoaiMyNeural",
+    "ja": "ja-JP-NanamiNeural",
+    "ko": "ko-KR-SunHiNeural",
+    "hi": "hi-IN-SwaraNeural",
 }
 
 
@@ -80,14 +81,14 @@ def _detect_language(text: str) -> str:
         from langdetect import detect
 
         lang = detect(text)
-        return lang if lang in PIPER_VOICE_MAP else "en"
+        return lang if lang in EDGE_VOICE_MAP else "en"
     except Exception:
         return "en"
 
 
-def _get_piper_voice(lang: str) -> str:
-    """Return the Piper voice model name for a language code."""
-    return PIPER_VOICE_MAP.get(lang, PIPER_VOICE_MAP["en"])
+def _get_edge_voice(lang: str) -> str:
+    """Return the Edge TTS voice name for a language code."""
+    return EDGE_VOICE_MAP.get(lang, EDGE_VOICE_MAP["en"])
 
 
 def transcribe(audio_path: Path) -> str:
@@ -113,53 +114,23 @@ def transcribe(audio_path: Path) -> str:
         wav_path.unlink(missing_ok=True)
 
 
-def _get_voices_dir() -> Path:
-    """Return the directory where Piper voice models are cached."""
-    voices_dir = Path.home() / ".local" / "share" / "piper" / "voices"
-    voices_dir.mkdir(parents=True, exist_ok=True)
-    return voices_dir
-
-
-def _get_voice_model_path(voice_name: str) -> Path:
-    """Return the .onnx path for a Piper voice, downloading if needed."""
-    voices_dir = _get_voices_dir()
-    onnx_path = voices_dir / f"{voice_name}.onnx"
-    if not onnx_path.exists():
-        logger.info("Downloading Piper voice '%s'...", voice_name)
-        result = subprocess.run(
-            [sys.executable, "-m", "piper.download_voices", voice_name, "--data-dir", str(voices_dir)],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to download Piper voice '{voice_name}': {result.stderr or result.stdout}")
-    return onnx_path
-
-
-def synthesize(text: str, lang: Optional[str] = None) -> Path:
-    """Synthesize speech from text using Piper TTS. Returns path to output wav."""
+async def synthesize(text: str, lang: Optional[str] = None) -> Path:
+    """Synthesize speech from text using Edge TTS (Microsoft Neural voices). Returns path to mp3."""
     if not text.strip():
         raise ValueError("Cannot synthesize empty text")
 
     if lang is None:
         lang = _detect_language(text)
 
-    voice_name = _get_piper_voice(lang)
-    out_path = Path(tempfile.mktemp(suffix=".wav"))
+    voice = _get_edge_voice(lang)
+    out_path = Path(tempfile.mktemp(suffix=".mp3"))
 
     try:
-        from piper import PiperVoice
+        import edge_tts
 
-        model_path = _get_voice_model_path(voice_name)
-        voice = PiperVoice.load(str(model_path))
-
-        with wave.open(str(out_path), "wb") as wav_file:
-            if hasattr(voice, "synthesize_wav"):
-                voice.synthesize_wav(text, wav_file)
-            else:
-                voice.synthesize(text, wav_file)
-
-        logger.info("Synthesized %d chars in language '%s' with voice '%s'", len(text), lang, voice_name)
+        communicate = edge_tts.Communicate(text, voice)
+        await communicate.save(str(out_path))
+        logger.info("Synthesized %d chars via Edge TTS voice '%s'", len(text), voice)
         return out_path
     except Exception as e:
         out_path.unlink(missing_ok=True)
