@@ -99,7 +99,9 @@
         const data = await fetchJSON("/deps");
         setMissingDeps(data.missing || []);
         setMissingOptionalDeps(data.missing_optional || []);
-      } catch (_) {}
+      } catch (err) {
+        setError("Deps check failed: " + String(err));
+      }
     }, []);
 
     const loadLogs = useCallback(async () => {
