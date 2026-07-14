@@ -4,6 +4,7 @@ import { getVoiceDeps } from "../api";
 export interface VoiceCapabilities {
   ttsAvailable: boolean;
   sttAvailable: boolean;
+  ttsVoice?: string;
 }
 
 export function useVoiceCapabilities(): VoiceCapabilities {
@@ -16,13 +17,14 @@ export function useVoiceCapabilities(): VoiceCapabilities {
           typeof d === "string" ? d : d.requirement ?? ""
         );
         const missingStr = missing.join(" ");
-        setCaps({
+        setCaps((prev) => ({
           ttsAvailable: !missingStr.includes("edge-tts"),
           sttAvailable: !missingStr.includes("faster-whisper") && !missingStr.includes("imageio-ffmpeg"),
-        });
+          ttsVoice: prev.ttsVoice,
+        }));
       })
       .catch(() => {
-        setCaps({ ttsAvailable: false, sttAvailable: false });
+        setCaps((prev) => ({ ttsAvailable: false, sttAvailable: false, ttsVoice: prev.ttsVoice }));
       });
   }, []);
 

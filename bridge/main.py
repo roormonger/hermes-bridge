@@ -817,6 +817,7 @@ async def save_message_usage(chat_id: str, message_id: int, request: UsageSaveRe
 class SpeakRequest(BaseModel):
     text: str
     lang: str | None = None
+    voice: str | None = None
 
 
 @app.post("/v1/audio/transcribe")
@@ -850,7 +851,7 @@ async def speak_text(request: SpeakRequest, current_user: dict = Depends(get_cur
     try:
         from .voice import synthesize
 
-        wav_path = await synthesize(request.text, lang=request.lang)
+        wav_path = await synthesize(request.text, lang=request.lang, voice=request.voice)
         media_type = "audio/mpeg" if str(wav_path).endswith(".mp3") else "audio/wav"
         filename = "speech.mp3" if str(wav_path).endswith(".mp3") else "speech.wav"
         return FileResponse(

@@ -114,15 +114,15 @@ def transcribe(audio_path: Path) -> str:
         wav_path.unlink(missing_ok=True)
 
 
-async def synthesize(text: str, lang: Optional[str] = None) -> Path:
+async def synthesize(text: str, lang: Optional[str] = None, voice: Optional[str] = None) -> Path:
     """Synthesize speech from text using Edge TTS (Microsoft Neural voices). Returns path to mp3."""
     if not text.strip():
         raise ValueError("Cannot synthesize empty text")
 
-    if lang is None:
-        lang = _detect_language(text)
-
-    voice = _get_edge_voice(lang)
+    if voice is None:
+        if lang is None:
+            lang = _detect_language(text)
+        voice = _get_edge_voice(lang)
     out_path = Path(tempfile.mktemp(suffix=".mp3"))
 
     try:

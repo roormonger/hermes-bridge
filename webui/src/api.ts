@@ -119,7 +119,7 @@ function stripMarkdown(md: string): string {
     .trim();
 }
 
-export const speakText = async (text: string, lang?: string): Promise<string> => {
+export const speakText = async (text: string, lang?: string, voice?: string): Promise<string> => {
   const token = getToken();
   const clean = stripMarkdown(text);
   const res = await fetch("/v1/audio/speak", {
@@ -128,7 +128,7 @@ export const speakText = async (text: string, lang?: string): Promise<string> =>
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ text: clean, lang }),
+    body: JSON.stringify({ text: clean, lang, voice }),
   });
   if (!res.ok) throw new Error(await res.text() || res.statusText);
   const blob = await res.blob();

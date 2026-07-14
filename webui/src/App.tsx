@@ -22,12 +22,15 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
+import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu, Sun, Moon, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatUsage, saveChatUsage, saveMessageUsage, setModel, undoLastTurn, streamEvents, speakText, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
 import { useAutoSpeak } from "./hooks/useAutoSpeak";
 import { useVoiceCapabilities } from "./hooks/useVoiceCapabilities";
+import { useTheme } from "./hooks/useTheme";
+import { useTTSVoice } from "./hooks/useTTSVoice";
+import { TTS_VOICES } from "./hooks/useTTSVoice";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -638,6 +641,10 @@ function ChatSidebar({
   onDelete,
   username,
   onLogout,
+  theme,
+  onToggleTheme,
+  ttsVoice,
+  onTtsVoiceChange,
   collapsed,
   onToggleCollapse,
   mobileOpen,
@@ -651,6 +658,10 @@ function ChatSidebar({
   onDelete: (id: string) => void;
   username: string;
   onLogout: () => void;
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
+  ttsVoice: string;
+  onTtsVoiceChange: (v: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
   mobileOpen: boolean;
@@ -659,6 +670,7 @@ function ChatSidebar({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [search, setSearch] = useState("");
+  const [profileOpen, setProfileOpen] = useState(false);
   const filteredChats = search.trim()
     ? chats.filter((c) => c.title.toLowerCase().includes(search.toLowerCase()))
     : chats;
@@ -870,14 +882,56 @@ function ChatSidebar({
         ))}
       </div>
 
-      <div className={cn("border-t w-full", collapsed ? "p-2 flex justify-center" : "p-3")}>
+      <div className={cn("border-t w-full relative", collapsed ? "p-2 flex justify-center" : "p-3")}>
+        {/* Upward popover panel */}
+        {profileOpen && !collapsed && (
+          <div className="absolute bottom-full left-3 right-3 mb-1 rounded-xl border bg-card shadow-lg z-50 overflow-hidden">
+            <div className="p-3 border-b">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Theme</p>
+              <button
+                onClick={onToggleTheme}
+                className="flex items-center gap-2 w-full rounded-lg px-3 py-2 text-sm hover:bg-muted transition-colors"
+              >
+                {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+                {theme === "dark" ? "Switch to Light" : "Switch to Dark"}
+              </button>
+            </div>
+            <div className="p-3 border-b">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Voice</p>
+              <div className="flex flex-col gap-1">
+                {TTS_VOICES.map((v) => (
+                  <button
+                    key={v.value}
+                    onClick={() => onTtsVoiceChange(v.value)}
+                    className={cn(
+                      "flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors text-left",
+                      ttsVoice === v.value ? "bg-primary/10 text-primary" : "hover:bg-muted"
+                    )}
+                  >
+                    <span className="font-medium">{v.label}</span>
+                    <span className="text-xs text-muted-foreground">{v.description}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="p-3">
+              <button
+                onClick={() => { setProfileOpen(false); onLogout(); }}
+                className="flex items-center gap-2 w-full rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                <LogOut className="size-4" />
+                Log out
+              </button>
+            </div>
+          </div>
+        )}
         <div
           className={cn(
             "flex items-center rounded-lg hover:bg-muted cursor-pointer",
             collapsed ? "justify-center size-10 p-0" : "justify-between gap-2 px-2 py-2"
           )}
-          onClick={onLogout}
-          title="Logout"
+          onClick={() => collapsed ? onLogout() : setProfileOpen((v) => !v)}
+          title={collapsed ? "Logout" : "Account"}
         >
           <div className="flex items-center gap-2 min-w-0">
             <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
@@ -887,7 +941,7 @@ function ChatSidebar({
             </div>
             {!collapsed && <span className="text-sm font-medium truncate">{username}</span>}
           </div>
-          {!collapsed && <LogOut className="size-4 shrink-0 text-muted-foreground" />}
+          {!collapsed && <ChevronUp className={cn("size-4 shrink-0 text-muted-foreground transition-transform", !profileOpen && "rotate-180")} />}
         </div>
       </div>
       </div>
@@ -909,6 +963,8 @@ function ChatApp() {
   const [isRunning, setIsRunning] = useState(false);
   const { autoSpeak, toggleAutoSpeak } = useAutoSpeak();
   const voiceCaps = useVoiceCapabilities();
+  const { theme, toggle: toggleTheme } = useTheme();
+  const { voice: ttsVoice, setVoice: setTtsVoice } = useTTSVoice();
   const autoSpeakRef = useRef(autoSpeak);
   autoSpeakRef.current = autoSpeak;
   const [pendingGate, setPendingGate] = useState<Gate | null>(null);
@@ -1212,7 +1268,7 @@ function ChatApp() {
         setIsRunning(false);
         updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current);
         if (autoSpeakRef.current && voiceCaps.ttsAvailable && assistantContentRef.current.trim()) {
-          speakText(assistantContentRef.current).then((url) => {
+          speakText(assistantContentRef.current, undefined, ttsVoice).then((url) => {
             const audio = new Audio(url);
             audio.onended = () => URL.revokeObjectURL(url);
             audio.play().catch(() => {});
@@ -1532,6 +1588,10 @@ function ChatApp() {
         onDelete={deleteChat}
         username={user?.username || ""}
         onLogout={logout}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        ttsVoice={ttsVoice}
+        onTtsVoiceChange={setTtsVoice}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         mobileOpen={mobileSidebarOpen}
@@ -1620,7 +1680,7 @@ function ChatApp() {
         )}
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <AssistantRuntimeProvider runtime={runtime}>
-            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} voiceCaps={voiceCaps} />
+            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} voiceCaps={voiceCaps} ttsVoice={ttsVoice} />
           </AssistantRuntimeProvider>
         </div>
         <GateDialog pendingGate={pendingGate} onChoice={handleGateChoice} />

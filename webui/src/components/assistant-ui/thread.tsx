@@ -55,7 +55,7 @@ import { getToken } from "../../api";
 import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
 import type { VoiceCapabilities } from "../../hooks/useVoiceCapabilities";
 
-const VoiceCapsContext = createContext<VoiceCapabilities>({ ttsAvailable: true, sttAvailable: true });
+const VoiceCapsContext = createContext<VoiceCapabilities>({ ttsAvailable: true, sttAvailable: true, ttsVoice: undefined });
 
 // ---------------------------------------------------------------------------
 // Lightbox
@@ -222,8 +222,9 @@ export const Thread: FC<{
   autoSpeak?: boolean;
   onAutoSpeakToggle?: () => void;
   voiceCaps?: VoiceCapabilities;
-}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle, voiceCaps }) => {
-  const caps = voiceCaps ?? { ttsAvailable: true, sttAvailable: true };
+  ttsVoice?: string;
+}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle, voiceCaps, ttsVoice }) => {
+  const caps = { ...(voiceCaps ?? { ttsAvailable: true, sttAvailable: true }), ttsVoice };
   const isEmpty = useAuiState(isNewChatView);
 
   return (
@@ -682,7 +683,7 @@ const AssistantActionBar: FC = () => {
     try {
       const { speakText } = await import("../../api");
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-      const url = await speakText(messageText);
+      const url = await speakText(messageText, undefined, voiceCaps.ttsVoice);
       audioUrlRef.current = url;
       const audio = new Audio(url);
       audioRef.current = audio;
