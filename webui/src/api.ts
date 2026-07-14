@@ -71,10 +71,10 @@ export const undoLastTurn = (chatId: string) =>
 export const getChatUsage = (chatId: string) =>
   apiFetch(`/api/chats/${chatId}/usage`);
 
-export const saveChatUsage = (chatId: string, usage: any) =>
+export const saveChatUsage = (chatId: string, usage: any, contextWindow?: number) =>
   apiFetch(`/api/chats/${chatId}/usage`, {
     method: "PUT",
-    body: JSON.stringify({ usage }),
+    body: JSON.stringify({ usage, context_window: contextWindow }),
   });
 
 export const saveMessageUsage = (chatId: string, messageId: string, usage: any) =>

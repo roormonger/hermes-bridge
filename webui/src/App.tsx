@@ -987,7 +987,7 @@ function ChatApp() {
         setThreadUsage(usage);
         threadUsageRef.current = usage;
         usageKnownRef.current = true;
-        saveChatUsage(cid, usage).catch(() => {});
+        saveChatUsage(cid, usage, contextWindow || undefined).catch(() => {});
       }
     } catch {
       // ignore
@@ -1009,6 +1009,8 @@ function ChatApp() {
         try {
           const data = await getChatUsage(currentChatId);
           const usage = (data as any)?.usage;
+          const savedContextWindow = (data as any)?.context_window;
+          if (savedContextWindow) setContextWindow(savedContextWindow);
           if (usage && ((usage.totalTokens ?? 0) > 0 || (usage.inputTokens ?? 0) > 0 || (usage.outputTokens ?? 0) > 0)) {
             threadUsageRef.current = usage;
             setThreadUsage(usage);
@@ -1357,14 +1359,14 @@ function ChatApp() {
       next.totalTokens = next.inputTokens + next.outputTokens + next.cachedInputTokens + next.reasoningTokens;
       threadUsageRef.current = next;
       setThreadUsage(next);
-      saveChatUsage(chatId, next).catch(() => {});
+      saveChatUsage(chatId, next, contextWindow || undefined).catch(() => {});
       usageKnownRef.current = true;
     } else if (hasBefore) {
       const currentTotal = threadUsageRef.current?.totalTokens ?? 0;
       if ((afterUsage.totalTokens ?? 0) >= currentTotal) {
         threadUsageRef.current = afterUsage;
         setThreadUsage(afterUsage);
-        saveChatUsage(chatId, afterUsage).catch(() => {});
+        saveChatUsage(chatId, afterUsage, contextWindow || undefined).catch(() => {});
       }
     }
     setIsRunning(false);
