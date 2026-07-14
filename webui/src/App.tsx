@@ -24,8 +24,9 @@ import {
 } from "@/components/ui/tooltip";
 import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatUsage, saveChatUsage, saveMessageUsage, setModel, undoLastTurn, streamEvents, type SseEvent } from "./api";
+import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatUsage, saveChatUsage, saveMessageUsage, setModel, undoLastTurn, streamEvents, speakText, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
+import { useAutoSpeak } from "./hooks/useAutoSpeak";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -905,6 +906,9 @@ function ChatApp() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
+  const { autoSpeak, toggleAutoSpeak } = useAutoSpeak();
+  const autoSpeakRef = useRef(autoSpeak);
+  autoSpeakRef.current = autoSpeak;
   const [pendingGate, setPendingGate] = useState<Gate | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -1203,6 +1207,13 @@ function ChatApp() {
         );
         setIsRunning(false);
         updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current);
+        if (autoSpeakRef.current && assistantContentRef.current.trim()) {
+          speakText(assistantContentRef.current).then((url) => {
+            const audio = new Audio(url);
+            audio.onended = () => URL.revokeObjectURL(url);
+            audio.play().catch(() => {});
+          }).catch(() => {});
+        }
       } else if (event.type === "session_title") {
         if (event.title) {
           setChats((prev) =>
@@ -1605,7 +1616,7 @@ function ChatApp() {
         )}
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <AssistantRuntimeProvider runtime={runtime}>
-            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} />
+            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} />
           </AssistantRuntimeProvider>
         </div>
         <GateDialog pendingGate={pendingGate} onChoice={handleGateChoice} />

@@ -1,0 +1,27 @@
+import { useCallback, useState } from "react";
+
+const STORAGE_KEY = "hermes_auto_speak";
+
+function readStored(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function useAutoSpeak() {
+  const [enabled, setEnabled] = useState<boolean>(readStored);
+
+  const toggle = useCallback(() => {
+    setEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(STORAGE_KEY, String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  return { autoSpeak: enabled, toggleAutoSpeak: toggle };
+}

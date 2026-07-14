@@ -46,6 +46,7 @@ import {
   SquareIcon,
   Undo2Icon,
   Volume2Icon,
+  VolumeXIcon,
   WrenchIcon,
 } from "lucide-react";
 import { type FC, type ReactNode, useState, useCallback, useEffect, useRef, Children } from "react";
@@ -215,7 +216,9 @@ export const Thread: FC<{
   onUndo?: () => void;
   contextWindow?: number;
   threadUsage?: ThreadTokenUsage;
-}> = ({ onUndo, contextWindow, threadUsage }) => {
+  autoSpeak?: boolean;
+  onAutoSpeakToggle?: () => void;
+}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle }) => {
   const isEmpty = useAuiState(isNewChatView);
 
   return (
@@ -261,7 +264,7 @@ export const Thread: FC<{
             )}
           >
             <ThreadScrollToBottom />
-            <Composer onUndo={onUndo} contextWindow={contextWindow} threadUsage={threadUsage} />
+            <Composer onUndo={onUndo} contextWindow={contextWindow} threadUsage={threadUsage} autoSpeak={autoSpeak} onAutoSpeakToggle={onAutoSpeakToggle} />
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
@@ -335,7 +338,9 @@ const Composer: FC<{
   onUndo?: () => void;
   contextWindow?: number;
   threadUsage?: ThreadTokenUsage;
-}> = ({ onUndo, contextWindow, threadUsage }) => {
+  autoSpeak?: boolean;
+  onAutoSpeakToggle?: () => void;
+}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle }) => {
   const composerRuntime = useComposerRuntime();
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -360,7 +365,7 @@ const Composer: FC<{
             aria-label="Message input"
             onKeyDown={handleKeyDown}
           />
-          <ComposerAction onUndo={onUndo} contextWindow={contextWindow} threadUsage={threadUsage} />
+          <ComposerAction onUndo={onUndo} contextWindow={contextWindow} threadUsage={threadUsage} autoSpeak={autoSpeak} onAutoSpeakToggle={onAutoSpeakToggle} />
         </div>
       </ComposerPrimitive.AttachmentDropzone>
     </ComposerPrimitive.Root>
@@ -371,7 +376,9 @@ const ComposerAction: FC<{
   onUndo?: () => void;
   contextWindow?: number;
   threadUsage?: ThreadTokenUsage;
-}> = ({ onUndo, contextWindow, threadUsage }) => {
+  autoSpeak?: boolean;
+  onAutoSpeakToggle?: () => void;
+}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle }) => {
   const canUndo = useAuiState((s) => s.thread.messages.length > 0);
   const isRunning = useAuiState((s) => s.thread.isRunning);
   const composerRuntime = useComposerRuntime();
@@ -392,7 +399,23 @@ const ComposerAction: FC<{
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
-      <ComposerAddAttachment />
+      <div className="flex items-center gap-1">
+        <ComposerAddAttachment />
+        {onAutoSpeakToggle && (
+          <TooltipIconButton
+            tooltip={autoSpeak ? "Auto-speak on (click to turn off)" : "Auto-speak off (click to turn on)"}
+            side="top"
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn("size-7 rounded-full", autoSpeak && "text-primary")}
+            aria-label={autoSpeak ? "Disable auto-speak" : "Enable auto-speak"}
+            onClick={onAutoSpeakToggle}
+          >
+            {autoSpeak ? <Volume2Icon className="size-4" /> : <VolumeXIcon className="size-4" />}
+          </TooltipIconButton>
+        )}
+      </div>
       <div className="flex items-center gap-1.5">
         {contextWindow && contextWindow > 0 && (
           <ContextDisplay.Bar
