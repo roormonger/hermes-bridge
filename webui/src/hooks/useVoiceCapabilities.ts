@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getVoiceDeps } from "../api";
+import { getVoiceConfig } from "../api";
 
 export interface VoiceCapabilities {
   ttsAvailable: boolean;
@@ -11,15 +11,12 @@ export function useVoiceCapabilities(): VoiceCapabilities {
   const [caps, setCaps] = useState<VoiceCapabilities>({ ttsAvailable: true, sttAvailable: true });
 
   useEffect(() => {
-    getVoiceDeps()
+    getVoiceConfig()
       .then((data: any) => {
-        const missing: string[] = (data?.missing_optional ?? []).map((d: any) =>
-          typeof d === "string" ? d : d.requirement ?? ""
-        );
-        const missingStr = missing.join(" ");
+        const enabled: boolean = data?.voice_enabled !== false;
         setCaps((prev) => ({
-          ttsAvailable: !missingStr.includes("edge-tts"),
-          sttAvailable: !missingStr.includes("faster-whisper") && !missingStr.includes("imageio-ffmpeg"),
+          ttsAvailable: enabled && data?.tts_available !== false,
+          sttAvailable: enabled && data?.stt_available !== false,
           ttsVoice: prev.ttsVoice,
         }));
       })

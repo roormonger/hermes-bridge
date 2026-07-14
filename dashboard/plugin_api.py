@@ -83,6 +83,8 @@ class ConfigUpdate(BaseModel):
     debug: Optional[bool] = None
     auto_start: Optional[bool] = None
     hermes_dashboard_url: Optional[str] = None
+    voice_enabled: Optional[bool] = None
+    default_tts_voice: Optional[str] = None
     restart: bool = False
 
 
@@ -122,6 +124,24 @@ async def post_restart() -> dict:
 async def get_config() -> dict:
     try:
         return load_config().to_dict()
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+@router.get("/voice-config")
+async def get_voice_config() -> dict:
+    try:
+        cfg = load_config()
+        missing_optional = check_optional_dependencies()
+        missing_str = " ".join(
+            d if isinstance(d, str) else d.get("requirement", "") for d in missing_optional
+        )
+        return {
+            "voice_enabled": cfg.voice_enabled,
+            "default_tts_voice": cfg.default_tts_voice,
+            "tts_available": "edge-tts" not in missing_str,
+            "stt_available": "faster-whisper" not in missing_str and "imageio-ffmpeg" not in missing_str,
+        }
     except Exception as exc:
         _handle_exc(exc)
 

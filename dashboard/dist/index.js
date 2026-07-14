@@ -70,6 +70,9 @@
     const [notice, setNotice] = useState(null);
     const [missingDeps, setMissingDeps] = useState([]);
     const [missingOptionalDeps, setMissingOptionalDeps] = useState([]);
+    const [voiceEnabled, setVoiceEnabled] = useState(true);
+    const [defaultTtsVoice, setDefaultTtsVoice] = useState("en-US-AriaNeural");
+    const [voiceDepsAvailable, setVoiceDepsAvailable] = useState({ tts: true, stt: true });
     const [settingsHost, setSettingsHost] = useState("");
     const [settingsPort, setSettingsPort] = useState("");
     const [pendingRestart, setPendingRestart] = useState(false);
@@ -102,6 +105,15 @@
       } catch (err) {
         setError("Deps check failed: " + String(err));
       }
+    }, []);
+
+    const loadVoiceConfig = useCallback(async () => {
+      try {
+        const data = await fetchJSON("/voice-config");
+        setVoiceEnabled(data.voice_enabled);
+        setDefaultTtsVoice(data.default_tts_voice);
+        setVoiceDepsAvailable({ tts: data.tts_available, stt: data.stt_available });
+      } catch (_) {}
     }, []);
 
     const loadLogs = useCallback(async () => {
@@ -141,9 +153,10 @@
       loadLogs();
       loadUsers();
       loadDashboardUrl();
+      loadVoiceConfig();
       const id = setInterval(() => { loadStatus(); loadLogs(); }, 5000);
       return () => clearInterval(id);
-    }, [loadStatus, loadDeps, loadLogs, loadUsers, loadDashboardUrl]);
+    }, [loadStatus, loadDeps, loadLogs, loadUsers, loadDashboardUrl, loadVoiceConfig]);
 
     useEffect(() => {
       if (!logsPaused && logsBoxRef.current) {
@@ -197,6 +210,35 @@
       }
     };
     const onRefreshLogs = () => act(loadLogs(), null);
+
+    const TTS_VOICES = [
+      { label: "Aria (US Female)", value: "en-US-AriaNeural" },
+      { label: "Jenny (US Female)", value: "en-US-JennyNeural" },
+      { label: "Guy (US Male)", value: "en-US-GuyNeural" },
+      { label: "Eric (US Male)", value: "en-US-EricNeural" },
+      { label: "Sonia (UK Female)", value: "en-GB-SoniaNeural" },
+      { label: "Ryan (UK Male)", value: "en-GB-RyanNeural" },
+      { label: "Natasha (AU Female)", value: "en-AU-NatashaNeural" },
+      { label: "William (AU Male)", value: "en-AU-WilliamNeural" },
+    ];
+
+    const onSaveVoiceSettings = async () => {
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        await fetchJSON("/config", {
+          method: "POST",
+          body: JSON.stringify({ voice_enabled: voiceEnabled, default_tts_voice: defaultTtsVoice }),
+        });
+        setNotice("Voice settings saved.");
+        await loadVoiceConfig();
+      } catch (err) {
+        setError("Save voice settings failed: " + String(err));
+      } finally {
+        setLoading(false);
+      }
+    };
 
     const onSaveSettings = async (e) => {
       e.preventDefault();
@@ -449,6 +491,48 @@
           !dashboardUrlVerify && !dashboardUrl && h("div", { className: "rounded-md border border-orange-400 bg-orange-50 dark:bg-orange-950 dark:border-orange-700 p-3 text-sm" },
             h("span", { className: "text-orange-800 dark:text-orange-200" }, "⚠ No dashboard URL detected. Profile-style model switching in chat will not work until the Hermes dashboard URL is set or auto-detected.")
           )
+        )
+      ),
+      h(Card, null,
+        h(CardHeader, null,
+          h(CardTitle, null, "Voice Settings"),
+          h("p", { className: "text-sm text-muted-foreground" }, "Enable or disable voice features and set the default TTS voice for all users.")
+        ),
+        h(CardContent, { className: "space-y-4" },
+          !voiceDepsAvailable.tts && !voiceDepsAvailable.stt && h("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700 p-3 text-sm text-yellow-800 dark:text-yellow-200" },
+            "⚠ Voice dependencies are not installed. Install them above to enable voice features."
+          ),
+          h("div", { className: "flex items-center justify-between rounded-md border px-4 py-3" },
+            h("div", null,
+              h("div", { className: "text-sm font-medium" }, "Enable Voice"),
+              h("div", { className: "text-xs text-muted-foreground" }, voiceDepsAvailable.tts || voiceDepsAvailable.stt ? "Allow users to use voice input and output." : "Requires voice dependencies to be installed.")
+            ),
+            h("button", {
+              type: "button",
+              role: "switch",
+              "aria-checked": voiceEnabled,
+              disabled: !voiceDepsAvailable.tts && !voiceDepsAvailable.stt,
+              onClick: () => setVoiceEnabled(v => !v),
+              className: "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none " + (voiceEnabled ? "bg-primary" : "bg-muted") + ((!voiceDepsAvailable.tts && !voiceDepsAvailable.stt) ? " opacity-40 cursor-not-allowed" : " cursor-pointer")
+            },
+              h("span", {
+                className: "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform " + (voiceEnabled ? "translate-x-6" : "translate-x-1")
+              })
+            )
+          ),
+          h("div", { className: "flex flex-col gap-2" },
+            h("label", { className: "text-sm font-medium" }, "Default TTS Voice"),
+            h("p", { className: "text-xs text-muted-foreground" }, "Used as the fallback voice when users haven't chosen one."),
+            h("select", {
+              value: defaultTtsVoice,
+              onChange: (e) => setDefaultTtsVoice(e.target.value),
+              disabled: !voiceDepsAvailable.tts,
+              className: "rounded-md border border-input bg-background px-3 py-2 text-sm max-w-xs" + (!voiceDepsAvailable.tts ? " opacity-40 cursor-not-allowed" : "")
+            },
+              TTS_VOICES.map(v => h("option", { key: v.value, value: v.value }, v.label))
+            )
+          ),
+          h(Button, { onClick: onSaveVoiceSettings, disabled: loading, size: "sm" }, "Save Voice Settings")
         )
       ),
       h(Card, null,

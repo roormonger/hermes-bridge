@@ -31,6 +31,8 @@ DEFAULTS: dict[str, Any] = {
     "auto_start": True,
     "debug": False,
     "hermes_dashboard_url": "",
+    "voice_enabled": True,
+    "default_tts_voice": "en-US-AriaNeural",
 }
 
 
@@ -45,6 +47,8 @@ class BridgeConfig:
     auto_start: bool
     debug: bool
     hermes_dashboard_url: str
+    voice_enabled: bool = True
+    default_tts_voice: str = "en-US-AriaNeural"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +61,8 @@ class BridgeConfig:
             "auto_start": self.auto_start,
             "debug": self.debug,
             "hermes_dashboard_url": self.hermes_dashboard_url,
+            "voice_enabled": self.voice_enabled,
+            "default_tts_voice": self.default_tts_voice,
         }
 
 

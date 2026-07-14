@@ -84,6 +84,7 @@ export const saveMessageUsage = (chatId: string, messageId: string, usage: any) 
   });
 
 export const getVoiceDeps = () => apiFetch("/api/plugins/hermes-chat/deps");
+export const getVoiceConfig = () => apiFetch("/api/plugins/hermes-chat/voice-config");
 
 export const transcribeAudio = async (blob: Blob): Promise<string> => {
   const token = getToken();

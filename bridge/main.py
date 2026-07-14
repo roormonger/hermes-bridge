@@ -823,6 +823,8 @@ class SpeakRequest(BaseModel):
 @app.post("/v1/audio/transcribe")
 async def transcribe_audio(file: UploadFile, current_user: dict = Depends(get_current_user)) -> dict:
     """Transcribe uploaded audio (webm/opus from browser) to text via Whisper."""
+    if not load_config().voice_enabled:
+        raise HTTPException(status_code=503, detail="Voice is disabled in settings.")
     import shutil
     import tempfile
 
@@ -848,6 +850,10 @@ async def transcribe_audio(file: UploadFile, current_user: dict = Depends(get_cu
 @app.post("/v1/audio/speak")
 async def speak_text(request: SpeakRequest, current_user: dict = Depends(get_current_user)) -> FileResponse:
     """Synthesize speech from text via Piper TTS. Returns a wav audio file."""
+    if not load_config().voice_enabled:
+        raise HTTPException(status_code=503, detail="Voice is disabled in settings.")
+    if request.voice is None:
+        request.voice = load_config().default_tts_voice
     try:
         from .voice import synthesize
 
