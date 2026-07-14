@@ -513,10 +513,12 @@
               "aria-checked": voiceEnabled,
               disabled: !voiceDepsAvailable.tts && !voiceDepsAvailable.stt,
               onClick: () => setVoiceEnabled(v => !v),
-              className: "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none " + (voiceEnabled ? "bg-primary" : "bg-muted") + ((!voiceDepsAvailable.tts && !voiceDepsAvailable.stt) ? " opacity-40 cursor-not-allowed" : " cursor-pointer")
+              className: "relative inline-flex h-6 w-11 items-center rounded-full focus:outline-none " + ((!voiceDepsAvailable.tts && !voiceDepsAvailable.stt) ? " opacity-40 cursor-not-allowed" : " cursor-pointer"),
+              style: { backgroundColor: voiceEnabled ? "var(--primary)" : "var(--muted)", transition: "background-color 0.2s" }
             },
               h("span", {
-                className: "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform " + (voiceEnabled ? "translate-x-6" : "translate-x-1")
+                className: "inline-block h-4 w-4 rounded-full bg-white shadow",
+                style: { transform: voiceEnabled ? "translateX(1.375rem)" : "translateX(0.125rem)", transition: "transform 0.2s" }
               })
             )
           ),
