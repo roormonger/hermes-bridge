@@ -22,7 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, Trash2, Pencil, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu, Sun, Moon, ChevronUp } from "lucide-react";
+import { Plus, Trash2, Pencil, Pin, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu, Sun, Moon, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatUsage, saveChatUsage, saveMessageUsage, setModel, undoLastTurn, streamEvents, speakText, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
@@ -41,6 +41,7 @@ type Chat = {
   title: string;
   created_at: string;
   updated_at: string;
+  pinned?: number;
 };
 
 type Gate = {
@@ -523,60 +524,6 @@ function ModelPicker({
   );
 }
 
-function GateDialog({
-  pendingGate,
-  onChoice,
-}: {
-  pendingGate: Gate | null;
-  onChoice: (choice: string) => void;
-}) {
-  const [freeText, setFreeText] = useState("");
-  const isFreeText = !!pendingGate && pendingGate.options.length === 0;
-
-  if (!pendingGate) return null;
-
-  const handleFreeTextSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const val = freeText.trim();
-    if (!val) return;
-    setFreeText("");
-    onChoice(val);
-  };
-
-  return (
-    <Dialog open={!!pendingGate} onOpenChange={() => {}}>
-      <DialogContent showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle>Hermes needs your input</DialogTitle>
-        </DialogHeader>
-        <p className="text-muted-foreground">
-          {pendingGate.prompt || "Choose an option:"}
-        </p>
-        {pendingGate.options.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {pendingGate.options.map((option) => (
-              <Button key={option} variant="outline" onClick={() => onChoice(option)}>
-                {option}
-              </Button>
-            ))}
-          </div>
-        )}
-        <form onSubmit={handleFreeTextSubmit} className="flex gap-2">
-          <Input
-            autoFocus={isFreeText}
-            value={freeText}
-            onChange={(e) => setFreeText(e.target.value)}
-            placeholder={isFreeText ? "Type your answer…" : "Or type a custom answer…"}
-            className="flex-1"
-          />
-          <Button type="submit" disabled={!freeText.trim()}>
-            Send
-          </Button>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Sidebar
@@ -598,9 +545,12 @@ function formatGroup(date: Date): string {
   return "Older";
 }
 
-function groupChats(chats: Chat[]): { label: string; items: Chat[] }[] {
+function groupChats(chats: Chat[]): { label: string; items: Chat[]; pinned?: boolean }[] {
+  const pinned = chats.filter((c) => c.pinned);
+  const rest = chats.filter((c) => !c.pinned);
+
   const groups = new Map<string, Chat[]>();
-  for (const chat of chats) {
+  for (const chat of rest) {
     const label = formatGroup(new Date(chat.updated_at || chat.created_at));
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label)!.push(chat);
@@ -615,9 +565,14 @@ function groupChats(chats: Chat[]): { label: string; items: Chat[] }[] {
   }
 
   const order = ["Today", "Yesterday", ...dayOrder, "Last Week", "Last Month", "Older"];
-  return order
+  const dateGroups = order
     .filter((label) => groups.has(label))
     .map((label) => ({ label, items: groups.get(label)! }));
+
+  return [
+    ...(pinned.length > 0 ? [{ label: "Pinned", items: pinned, pinned: true }] : []),
+    ...dateGroups,
+  ];
 }
 
 function formatChatDate(value: string | number | undefined): string {
@@ -639,6 +594,7 @@ function ChatSidebar({
   onNew,
   onRename,
   onDelete,
+  onPin,
   username,
   onLogout,
   theme,
@@ -657,6 +613,7 @@ function ChatSidebar({
   onNew: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  onPin: (id: string, pinned: boolean) => void;
   username: string;
   onLogout: () => void;
   theme: "light" | "dark";
@@ -845,6 +802,18 @@ function ChatSidebar({
                             currentChatId === chat.chat_id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
                           )}
                         >
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn("size-7", chat.pinned ? "text-primary" : "")}
+                            title={chat.pinned ? "Unpin" : "Pin"}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onPin(chat.chat_id, !chat.pinned);
+                            }}
+                          >
+                            <Pin className="size-3" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1144,6 +1113,20 @@ function ChatApp() {
       });
       setChats((prev) =>
         prev.map((c) => (c.chat_id === chatId ? { ...c, title } : c))
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const pinChat = async (chatId: string, pinned: boolean) => {
+    try {
+      await apiFetch(`/api/chats/${chatId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ pinned }),
+      });
+      setChats((prev) =>
+        prev.map((c) => (c.chat_id === chatId ? { ...c, pinned: pinned ? 1 : 0 } : c))
       );
     } catch (e) {
       setError((e as Error).message);
@@ -1525,6 +1508,11 @@ function ChatApp() {
       const images = getAppendImages(message);
       if (!text.trim() && images.length === 0) return;
 
+      if (pendingGate) {
+        handleGateChoice(text.trim());
+        return;
+      }
+
       let chatId = currentChatIdRef.current;
       if (!chatId) {
         const data = await apiFetch("/api/chats", {
@@ -1596,6 +1584,7 @@ function ChatApp() {
         onNew={() => { createChat(); setMobileSidebarOpen(false); }}
         onRename={renameChat}
         onDelete={deleteChat}
+        onPin={pinChat}
         username={user?.username || ""}
         onLogout={logout}
         theme={theme}
@@ -1691,10 +1680,9 @@ function ChatApp() {
         )}
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <AssistantRuntimeProvider runtime={runtime}>
-            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} voiceCaps={voiceCaps} ttsVoice={ttsVoice} />
+            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} voiceCaps={voiceCaps} ttsVoice={ttsVoice} onGateChoice={handleGateChoice} />
           </AssistantRuntimeProvider>
         </div>
-        <GateDialog pendingGate={pendingGate} onChoice={handleGateChoice} />
         <ModelPicker
           chatId={currentChatId}
           open={modelPickerOpen}

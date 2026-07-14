@@ -91,6 +91,12 @@ class ChatHistoryStore:
             conn.commit()
         except sqlite3.OperationalError:
             pass
+        # Migration: add pinned column for sidebar pinning.
+        try:
+            conn.execute("ALTER TABLE chats ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
     def _user_where(self, user_id: Optional[str]) -> str:
@@ -128,7 +134,7 @@ class ChatHistoryStore:
     def list_chats(self, user_id: Optional[str], limit: int = 100) -> list[dict]:
         conn = self._conn()
         rows = conn.execute(
-            f"SELECT chat_id, user_id, title, created_at, updated_at FROM chats WHERE ({self._user_where(user_id)}) ORDER BY updated_at DESC LIMIT ?",
+            f"SELECT chat_id, user_id, title, created_at, updated_at, pinned FROM chats WHERE ({self._user_where(user_id)}) ORDER BY pinned DESC, updated_at DESC LIMIT ?",
             (*self._user_params(user_id), limit),
         ).fetchall()
         return [dict(row) for row in rows]
@@ -136,10 +142,18 @@ class ChatHistoryStore:
     def get_chat(self, chat_id: str, user_id: Optional[str]) -> Optional[dict]:
         conn = self._conn()
         row = conn.execute(
-            f"SELECT chat_id, user_id, title, created_at, updated_at FROM chats WHERE chat_id = ? AND ({self._user_where(user_id)})",
+            f"SELECT chat_id, user_id, title, created_at, updated_at, pinned FROM chats WHERE chat_id = ? AND ({self._user_where(user_id)})",
             (chat_id, *self._user_params(user_id)),
         ).fetchone()
         return dict(row) if row else None
+
+    def pin_chat(self, chat_id: str, user_id: Optional[str], pinned: bool) -> None:
+        conn = self._conn()
+        conn.execute(
+            f"UPDATE chats SET pinned = ? WHERE chat_id = ? AND ({self._user_where(user_id)})",
+            (1 if pinned else 0, chat_id, *self._user_params(user_id)),
+        )
+        conn.commit()
 
     def add_message(
         self,

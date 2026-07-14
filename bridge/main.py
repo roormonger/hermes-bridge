@@ -122,7 +122,8 @@ class CreateChatRequest(BaseModel):
 
 
 class RenameChatRequest(BaseModel):
-    title: str
+    title: Optional[str] = None
+    pinned: Optional[bool] = None
 
 
 class SaveMessageRequest(BaseModel):
@@ -738,10 +739,15 @@ async def get_chat(chat_id: str, current_user: dict = Depends(get_current_user))
 
 @app.patch("/api/chats/{chat_id}")
 async def rename_chat(chat_id: str, request: RenameChatRequest, current_user: dict = Depends(get_current_user)) -> dict:
-    if history.get_chat(chat_id, current_user["user_id"]) is None:
+    chat = history.get_chat(chat_id, current_user["user_id"])
+    if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    history.rename_chat(chat_id, current_user["user_id"], request.title)
-    return {"chat_id": chat_id, "title": request.title}
+    if request.title is not None:
+        history.rename_chat(chat_id, current_user["user_id"], request.title)
+    if request.pinned is not None:
+        history.pin_chat(chat_id, current_user["user_id"], request.pinned)
+    updated = history.get_chat(chat_id, current_user["user_id"])
+    return updated or chat
 
 
 @app.delete("/api/chats/{chat_id}")

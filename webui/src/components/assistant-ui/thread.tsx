@@ -57,6 +57,9 @@ import type { VoiceCapabilities } from "../../hooks/useVoiceCapabilities";
 
 const VoiceCapsContext = createContext<VoiceCapabilities>({ ttsAvailable: true, sttAvailable: true, ttsVoice: undefined });
 
+type GateContextValue = { onGateChoice: ((choice: string) => void) | null };
+const GateContext = createContext<GateContextValue>({ onGateChoice: null });
+
 // ---------------------------------------------------------------------------
 // Slash command autocomplete
 // ---------------------------------------------------------------------------
@@ -273,11 +276,13 @@ export const Thread: FC<{
   onAutoSpeakToggle?: () => void;
   voiceCaps?: VoiceCapabilities;
   ttsVoice?: string;
-}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle, voiceCaps, ttsVoice }) => {
+  onGateChoice?: (choice: string) => void;
+}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle, voiceCaps, ttsVoice, onGateChoice }) => {
   const caps = { ...(voiceCaps ?? { ttsAvailable: true, sttAvailable: true }), ttsVoice };
   const isEmpty = useAuiState(isNewChatView);
 
   return (
+    <GateContext.Provider value={{ onGateChoice: onGateChoice ?? null }}>
     <VoiceCapsContext.Provider value={caps}>
     <ThreadPrimitive.Root
       className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
@@ -330,6 +335,7 @@ export const Thread: FC<{
       </ThreadPrimitive.Viewport>
     </ThreadPrimitive.Root>
     </VoiceCapsContext.Provider>
+    </GateContext.Provider>
   );
 };
 
@@ -686,6 +692,36 @@ const ToolStepsGroup: FC<{ children: ReactNode }> = ({ children }) => {
   );
 };
 
+type Gate = { gateId: string; gateKind: string; options: string[]; prompt: string };
+
+const InlineGate: FC<{ gate: Gate | null }> = ({ gate }) => {
+  const { onGateChoice } = useContext(GateContext);
+  if (!gate || !onGateChoice) return null;
+
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      {gate.options.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {gate.options.map((opt) => (
+            <Button
+              key={opt}
+              variant="outline"
+              size="sm"
+              className="rounded-full text-sm"
+              onClick={() => onGateChoice(opt)}
+            >
+              {opt}
+            </Button>
+          ))}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {gate.options.length > 0 ? "Or type a custom reply in the composer." : "Type your reply in the composer."}
+      </p>
+    </div>
+  );
+};
+
 const AssistantMessage: FC = () => {
   const ACTION_BAR_PT = "pt-1.5";
   const ACTION_BAR_HEIGHT = `-mb-7.5 min-h-7.5 ${ACTION_BAR_PT}`;
@@ -713,7 +749,7 @@ const AssistantMessage: FC = () => {
           />
         </div>
         <span className="text-sm font-semibold text-foreground/90">Hermes</span>
-        <span className="text-xs text-muted-foreground/60">{formatTime(createdAt)}</span>
+        <span className="text-xs text-muted-foreground/60" title={new Date(createdAt).toLocaleString()}>{formatTime(createdAt)}</span>
         {messageUsage && messageUsage.totalTokens != null && (
           <span className="text-xs text-muted-foreground/60 tabular-nums">
             · {messageUsage.totalTokens.toLocaleString()} tokens
@@ -748,6 +784,7 @@ const AssistantMessage: FC = () => {
             }
           }}
         </MessagePrimitive.GroupedParts>
+        <InlineGate gate={meta.gate ?? null} />
         <MessageError />
       </div>
 
@@ -883,7 +920,7 @@ const UserMessage: FC = () => {
       </div>
 
       <div className="col-start-2 text-right">
-        <span className="text-[10px] text-muted-foreground/60 px-1">{formatTime(createdAt)}</span>
+        <span className="text-[10px] text-muted-foreground/60 px-1" title={new Date(createdAt).toLocaleString()}>{formatTime(createdAt)}</span>
       </div>
 
       <BranchPicker
