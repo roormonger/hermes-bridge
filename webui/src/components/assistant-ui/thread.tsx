@@ -38,17 +38,20 @@ import {
   ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
+  Loader2Icon,
   MicIcon,
   MoreHorizontalIcon,
   PencilIcon,
   RefreshCwIcon,
   SquareIcon,
   Undo2Icon,
+  Volume2Icon,
   WrenchIcon,
 } from "lucide-react";
-import { type FC, type ReactNode, useState, useCallback, useEffect, Children } from "react";
+import { type FC, type ReactNode, useState, useCallback, useEffect, useRef, Children } from "react";
 import { createPortal } from "react-dom";
 import { getToken } from "../../api";
+import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
 
 // ---------------------------------------------------------------------------
 // Lightbox
@@ -371,6 +374,21 @@ const ComposerAction: FC<{
 }> = ({ onUndo, contextWindow, threadUsage }) => {
   const canUndo = useAuiState((s) => s.thread.messages.length > 0);
   const isRunning = useAuiState((s) => s.thread.isRunning);
+  const composerRuntime = useComposerRuntime();
+  const composerText = useAuiState((s) => s.composer.text);
+
+  const handleTranscript = useCallback((text: string) => {
+    const current = composerText ?? "";
+    const next = current ? current + " " + text : text;
+    composerRuntime.setText(next);
+  }, [composerText, composerRuntime]);
+
+  const { recording, transcribing, start, stop } = useVoiceRecorder(handleTranscript);
+
+  const handleMicClick = () => {
+    if (recording) stop();
+    else start();
+  };
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
@@ -398,38 +416,28 @@ const ComposerAction: FC<{
             <Undo2Icon className="size-4" />
           </TooltipIconButton>
         )}
-        <AuiIf condition={(s) => s.thread.capabilities.dictation}>
-          <AuiIf condition={(s) => s.composer.dictation == null}>
-            <ComposerPrimitive.Dictate asChild>
-              <TooltipIconButton
-                tooltip="Voice input"
-                side="bottom"
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="aui-composer-dictate size-7 rounded-full"
-                aria-label="Start voice input"
-              >
-                <MicIcon className="aui-composer-dictate-icon size-4" />
-              </TooltipIconButton>
-            </ComposerPrimitive.Dictate>
-          </AuiIf>
-          <AuiIf condition={(s) => s.composer.dictation != null}>
-            <ComposerPrimitive.StopDictation asChild>
-              <TooltipIconButton
-                tooltip="Stop dictation"
-                side="bottom"
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="aui-composer-stop-dictation text-destructive size-7 rounded-full"
-                aria-label="Stop voice input"
-              >
-                <SquareIcon className="aui-composer-stop-dictation-icon size-3.5 animate-pulse fill-current" />
-              </TooltipIconButton>
-            </ComposerPrimitive.StopDictation>
-          </AuiIf>
-        </AuiIf>
+        <TooltipIconButton
+          tooltip={recording ? "Stop recording" : transcribing ? "Transcribing..." : "Voice input"}
+          side="bottom"
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "size-7 rounded-full",
+            recording && "text-destructive",
+          )}
+          aria-label={recording ? "Stop recording" : "Start voice input"}
+          onClick={handleMicClick}
+          disabled={transcribing}
+        >
+          {transcribing ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : recording ? (
+            <SquareIcon className="size-3.5 animate-pulse fill-current" />
+          ) : (
+            <MicIcon className="size-4" />
+          )}
+        </TooltipIconButton>
         <AuiIf condition={(s) => !s.thread.isRunning}>
           <ComposerPrimitive.Send asChild>
             <TooltipIconButton
@@ -620,12 +628,57 @@ const AssistantMessage: FC = () => {
 };
 
 const AssistantActionBar: FC = () => {
+  const [speaking, setSpeaking] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+
+  const messageText = useAuiState((s) =>
+    s.message.content
+      .filter((p: any) => p.type === "text")
+      .map((p: any) => p.text)
+      .join(" ")
+  );
+
+  const handleSpeak = useCallback(async () => {
+    if (speaking) {
+      audioRef.current?.pause();
+      setSpeaking(false);
+      return;
+    }
+    if (!messageText?.trim()) return;
+    setSpeaking(true);
+    try {
+      const { speakText } = await import("../../api");
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      const url = await speakText(messageText);
+      audioUrlRef.current = url;
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => setSpeaking(false);
+      audio.onerror = () => setSpeaking(false);
+      await audio.play();
+    } catch (e) {
+      console.error("TTS failed:", e);
+      setSpeaking(false);
+    }
+  }, [speaking, messageText]);
+
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
       autohide="not-last"
       className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in col-start-3 row-start-2 -ms-1 flex gap-1 duration-200"
     >
+      <TooltipIconButton
+        tooltip={speaking ? "Stop speaking" : "Read aloud"}
+        onClick={handleSpeak}
+      >
+        {speaking ? (
+          <SquareIcon className="size-3.5 fill-current" />
+        ) : (
+          <Volume2Icon className="size-4" />
+        )}
+      </TooltipIconButton>
       <ActionBarPrimitive.Copy asChild>
         <TooltipIconButton tooltip="Copy">
           <AuiIf condition={(s) => s.message.isCopied}>

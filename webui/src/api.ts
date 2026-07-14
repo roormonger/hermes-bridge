@@ -83,6 +83,37 @@ export const saveMessageUsage = (chatId: string, messageId: string, usage: any) 
     body: JSON.stringify({ usage }),
   });
 
+export const transcribeAudio = async (blob: Blob): Promise<string> => {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append("file", blob, "audio.webm");
+  const res = await fetch("/v1/audio/transcribe", {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await res.text() || res.statusText);
+  const data = await res.json();
+  return data.text as string;
+};
+
+export const speakText = async (text: string, lang?: string): Promise<string> => {
+  const token = getToken();
+  const res = await fetch("/v1/audio/speak", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ text, lang }),
+  });
+  if (!res.ok) throw new Error(await res.text() || res.statusText);
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+};
+
 export const streamEvents = async (
   url: string,
   body: object,

@@ -23,7 +23,7 @@ import uuid
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, status
+from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile, WebSocket, status
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -803,3 +803,52 @@ async def save_message_usage(chat_id: str, message_id: int, request: UsageSaveRe
         raise HTTPException(status_code=404, detail="Chat not found")
     history.update_message_usage(message_id, current_user["user_id"], request.usage)
     return {"status": "ok"}
+
+
+# --------------------------------------------------------------------------- #
+# Voice support: speech-to-text and text-to-speech
+# --------------------------------------------------------------------------- #
+
+class SpeakRequest(BaseModel):
+    text: str
+    lang: str | None = None
+
+
+@app.post("/v1/audio/transcribe")
+async def transcribe_audio(file: UploadFile, current_user: dict = Depends(get_current_user)) -> dict:
+    """Transcribe uploaded audio (webm/opus from browser) to text via Whisper."""
+    import shutil
+    import tempfile
+
+    suffix = "." + (file.filename or "audio.webm").rsplit(".", 1)[-1] if "." in (file.filename or "") else ".webm"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = Path(tmp.name)
+    try:
+        from .voice import transcribe
+
+        text = transcribe(tmp_path)
+        return {"text": text}
+    except Exception as e:
+        logger.error("Transcription failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+@app.post("/v1/audio/speak")
+async def speak_text(request: SpeakRequest, current_user: dict = Depends(get_current_user)) -> FileResponse:
+    """Synthesize speech from text via Piper TTS. Returns a wav audio file."""
+    try:
+        from .voice import synthesize
+
+        wav_path = synthesize(request.text, lang=request.lang)
+        return FileResponse(
+            str(wav_path),
+            media_type="audio/wav",
+            filename="speech.wav",
+            background=None,
+        )
+    except Exception as e:
+        logger.error("TTS failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"TTS failed: {e}")
