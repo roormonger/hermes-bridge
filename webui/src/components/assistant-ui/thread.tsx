@@ -39,7 +39,6 @@ import {
   ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
-  Loader2Icon,
   MicIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -573,9 +572,9 @@ const ComposerAction: FC<{
           disabled={transcribing}
         >
           {transcribing ? (
-            <Loader2Icon className="size-4 animate-spin" />
+            <DotMatrix state="listening" label="Transcribing voice input" className="size-4" />
           ) : recording ? (
-            <SquareIcon className="size-3.5 animate-pulse fill-current" />
+            <DotMatrix state="recording" label="Recording voice input" className="size-4" />
           ) : (
             <MicIcon className="size-4" />
           )}
@@ -725,20 +724,37 @@ const InlineGate: FC<{ gate: Gate | null }> = ({ gate }) => {
 
 const AssistantBusyIndicator: FC = () => {
   const isRunning = useAuiState((s) => s.message.status?.type === "running");
+  const meta = useAuiState((s) => (s.message.metadata as any)?.custom ?? {});
   const hasText = useAuiState((s) =>
     s.message.content.some((part) => part.type === "text" && part.text.trim().length > 0)
   );
+  const isSearching = Array.isArray(meta.runningTools) &&
+    meta.runningTools.some((toolName: string) => /search|browse|web|retriev|lookup/i.test(toolName));
+
 
   if (!isRunning) return null;
 
-  return (
-    <DotMatrix
-      state={hasText ? "streaming" : "thinking"}
-      label={hasText ? "Hermes is responding" : "Hermes is thinking"}
-      className="my-1 size-5 text-primary"
-    />
-  );
+  const state = meta.gate
+    ? "waiting"
+    : meta.activity === "connecting" || meta.activity === "syncing"
+      ? meta.activity
+      : isSearching
+        ? "searching"
+        : hasText
+          ? "streaming"
+          : "thinking";
+  const label = {
+    waiting: "Hermes is waiting for your input",
+    connecting: "Connecting to Hermes",
+    syncing: "Syncing the active response",
+    searching: "Hermes is searching",
+    streaming: "Hermes is responding",
+    thinking: "Hermes is thinking",
+  }[state];
+
+  return <DotMatrix state={state} label={label} className="my-1 size-5 text-primary" />;
 };
+
 const AssistantMessage: FC = () => {
   const ACTION_BAR_PT = "pt-1.5";
   const ACTION_BAR_HEIGHT = `-mb-7.5 min-h-7.5 ${ACTION_BAR_PT}`;
@@ -865,7 +881,7 @@ const AssistantActionBar: FC = () => {
         onClick={handleSpeak}
       >
         {speaking ? (
-          <SquareIcon className="size-3.5 fill-current" />
+          <DotMatrix state="speaking" label="Hermes is speaking" className="size-4" />
         ) : (
           <Volume2Icon className="size-4" />
         )}

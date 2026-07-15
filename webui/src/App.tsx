@@ -67,6 +67,7 @@ type ChatMessage = {
   content: string;
   images?: string[];  // data URLs for user-attached images
   status?: "running" | "complete";
+  activity?: "connecting" | "syncing";
   gate?: Gate | null;
   toolSteps?: ToolStep[];
   streamSeq?: number;
@@ -185,6 +186,10 @@ const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
   metadata: {
     custom: {
       ...(msg.gate ? { gate: msg.gate } : {}),
+      ...(msg.activity ? { activity: msg.activity } : {}),
+      ...((msg.toolSteps ?? []).some((step) => step.status === "running")
+        ? { runningTools: (msg.toolSteps ?? []).filter((step) => step.status === "running").map((step) => step.name) }
+        : {}),
       createdAt: msg.createdAt ?? Date.now(),
       ...(msg.usage ? { usage: msg.usage } : {}),
     },
@@ -1202,6 +1207,13 @@ function ChatApp() {
         if (event.seq <= streamSeqRef.current) return;
         streamSeqRef.current = event.seq;
       }
+      setMessages((prev) => {
+        const activeMessage = prev.find((message) => message.id === assistantId);
+        if (!activeMessage?.activity) return prev;
+        return prev.map((message) =>
+          message.id === assistantId ? { ...message, activity: undefined } : message
+        );
+      });
       if (event.type === "text") {
         assistantContentRef.current = formatAssistantText(
           assistantContentRef.current + event.text
@@ -1376,16 +1388,24 @@ function ChatApp() {
         abortControllerRef.current = ac;
         setIsRunning(true);
 
-        if (run.pending_gate) {
-          setPendingGate({
-            gateId: run.pending_gate.gate_id,
-            gateKind: run.pending_gate.gate_kind || "approval",
-            options: run.pending_gate.options || [],
-            prompt: run.pending_gate.prompt || "",
-          });
-        }
+        const recoveredGate = run.pending_gate
+          ? {
+              gateId: run.pending_gate.gate_id,
+              gateKind: run.pending_gate.gate_kind || "approval",
+              options: run.pending_gate.options || [],
+              prompt: run.pending_gate.prompt || "",
+            }
+          : null;
+        if (recoveredGate) setPendingGate(recoveredGate);
         setMessages((prev) => prev.map((message) =>
-          message.id === assistantId ? { ...message, status: "running" } : message,
+          message.id === assistantId
+            ? {
+                ...message,
+                status: "running",
+                activity: recoveredGate ? undefined : "syncing",
+                gate: recoveredGate ?? message.gate,
+              }
+            : message,
         ));
         await streamChatRun(
           run.run_id,
@@ -1413,6 +1433,12 @@ function ChatApp() {
     streamSeqRef.current = 0;
     runIdRef.current = null;
 
+    const assistantId = await createBackendMessage(chatId, "assistant", "", [], []);
+    assistantIdRef.current = assistantId;
+    setMessages((prev) => [
+      ...prev,
+      { id: assistantId, role: "assistant", content: "", status: "running", activity: "connecting", toolSteps: [], createdAt: Date.now() },
+    ]);
     let beforeUsage: ChatMessage["usage"] = {};
     try {
       const beforeData = await getUsage(chatId);
@@ -1427,12 +1453,6 @@ function ChatApp() {
     usageKnownRef.current = usageKnownRef.current || hasBefore;
     usageBeforeRef.current = beforeUsage;
 
-    const assistantId = await createBackendMessage(chatId, "assistant", "", [], []);
-    assistantIdRef.current = assistantId;
-    setMessages((prev) => [
-      ...prev,
-      { id: assistantId, role: "assistant", content: "", status: "running", toolSteps: [], createdAt: Date.now() },
-    ]);
 
     const ac = new AbortController();
     abortControllerRef.current = ac;
