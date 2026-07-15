@@ -1538,18 +1538,11 @@ function ChatApp() {
     setIsRunning(false);
   };
 
-  const handleGateChoice = async (choice: string) => {
+  const handleGateChoice = async (choice: string): Promise<boolean> => {
     const chatId = currentChatIdRef.current;
-    if (!chatId || !pendingGate) return;
+    if (!chatId || !pendingGate || !choice.trim()) return false;
     const gate = pendingGate;
-    setPendingGate(null);
     setError(null);
-    setIsRunning(true);
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === assistantIdRef.current ? { ...m, gate: null } : m
-      )
-    );
 
     try {
       await apiFetch("/v1/gate/resolve", {
@@ -1558,17 +1551,20 @@ function ChatApp() {
           chat_id: chatId,
           gate_id: gate.gateId,
           gate_kind: gate.gateKind || "approval",
-          choice,
+          choice: choice.trim(),
         }),
       });
+      setPendingGate(null);
       const assistantId = assistantIdRef.current;
-      if (!assistantId) return;
-      setMessages((prev) => prev.map((message) =>
-        message.id === assistantId ? { ...message, gate: null, status: "running" } : message,
-      ));
+      if (assistantId) {
+        setMessages((prev) => prev.map((message) =>
+          message.id === assistantId ? { ...message, gate: null, status: "running" } : message,
+        ));
+      }
+      return true;
     } catch (e) {
       setError((e as Error).message);
-      setIsRunning(false);
+      return false;
     }
   };
 
@@ -1616,15 +1612,14 @@ function ChatApp() {
       }
     },
     onNew: async (message: AppendMessage) => {
-      if (isRunning) return;
       const text = getAppendText(message);
-      const images = getAppendImages(message);
-      if (!text.trim() && images.length === 0) return;
-
       if (pendingGate) {
-        handleGateChoice(text.trim());
+        await handleGateChoice(text);
         return;
       }
+      if (isRunning) return;
+      const images = getAppendImages(message);
+      if (!text.trim() && images.length === 0) return;
 
       let chatId = currentChatIdRef.current;
       if (!chatId) {
@@ -1793,7 +1788,7 @@ function ChatApp() {
         )}
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <AssistantRuntimeProvider runtime={runtime}>
-            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} voiceCaps={voiceCaps} ttsVoice={ttsVoice} onGateChoice={handleGateChoice} />
+            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} voiceCaps={voiceCaps} ttsVoice={ttsVoice} gatePending={Boolean(pendingGate)} onGateChoice={handleGateChoice} />
           </AssistantRuntimeProvider>
         </div>
         <ModelPicker

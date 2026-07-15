@@ -56,8 +56,11 @@ import type { VoiceCapabilities } from "../../hooks/useVoiceCapabilities";
 
 const VoiceCapsContext = createContext<VoiceCapabilities>({ ttsAvailable: true, sttAvailable: true, ttsVoice: undefined });
 
-type GateContextValue = { onGateChoice: ((choice: string) => void) | null };
-const GateContext = createContext<GateContextValue>({ onGateChoice: null });
+type GateContextValue = {
+  gatePending: boolean;
+  onGateChoice: ((choice: string) => Promise<boolean>) | null;
+};
+const GateContext = createContext<GateContextValue>({ gatePending: false, onGateChoice: null });
 
 // ---------------------------------------------------------------------------
 // Slash command autocomplete
@@ -276,13 +279,14 @@ export const Thread: FC<{
   onAutoSpeakToggle?: () => void;
   voiceCaps?: VoiceCapabilities;
   ttsVoice?: string;
-  onGateChoice?: (choice: string) => void;
-}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle, voiceCaps, ttsVoice, onGateChoice }) => {
+  gatePending?: boolean;
+  onGateChoice?: (choice: string) => Promise<boolean>;
+}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle, voiceCaps, ttsVoice, gatePending = false, onGateChoice }) => {
   const caps = { ...(voiceCaps ?? { ttsAvailable: true, sttAvailable: true }), ttsVoice };
   const isEmpty = useAuiState(isNewChatView);
 
   return (
-    <GateContext.Provider value={{ onGateChoice: onGateChoice ?? null }}>
+    <GateContext.Provider value={{ gatePending, onGateChoice: onGateChoice ?? null }}>
     <VoiceCapsContext.Provider value={caps}>
     <ThreadPrimitive.Root
       className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
@@ -406,6 +410,9 @@ const Composer: FC<{
   onAutoSpeakToggle?: () => void;
 }> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle }) => {
   const composerRuntime = useComposerRuntime();
+  const composerText = useAuiState((s) => s.composer.text);
+  const { gatePending, onGateChoice } = useContext(GateContext);
+  const [gateSubmitting, setGateSubmitting] = useState(false);
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [slashActive, setSlashActive] = useState(0);
 
@@ -419,7 +426,23 @@ const Composer: FC<{
     setSlashQuery(null);
   }, [composerRuntime]);
 
+  const submitGateChoice = useCallback(async () => {
+    const choice = composerText.trim();
+    if (!gatePending || !onGateChoice || !choice || gateSubmitting) return;
+    setGateSubmitting(true);
+    try {
+      if (await onGateChoice(choice)) composerRuntime.setText("");
+    } finally {
+      setGateSubmitting(false);
+    }
+  }, [composerRuntime, composerText, gatePending, gateSubmitting, onGateChoice]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (gatePending && e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void submitGateChoice();
+      return;
+    }
     if (slashQuery !== null && slashMatches.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -482,7 +505,7 @@ const Composer: FC<{
             onKeyDown={handleKeyDown}
             onInput={handleInput}
           />
-          <ComposerAction onUndo={onUndo} contextWindow={contextWindow} threadUsage={threadUsage} autoSpeak={autoSpeak} onAutoSpeakToggle={onAutoSpeakToggle} />
+          <ComposerAction onUndo={onUndo} contextWindow={contextWindow} threadUsage={threadUsage} autoSpeak={autoSpeak} onAutoSpeakToggle={onAutoSpeakToggle} gatePending={gatePending} gateSubmitting={gateSubmitting} canSubmitGate={composerText.trim().length > 0} onGateSubmit={() => void submitGateChoice()} />
         </div>
       </ComposerPrimitive.AttachmentDropzone>
     </ComposerPrimitive.Root>
@@ -495,7 +518,11 @@ const ComposerAction: FC<{
   threadUsage?: ThreadTokenUsage;
   autoSpeak?: boolean;
   onAutoSpeakToggle?: () => void;
-}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle }) => {
+  gatePending: boolean;
+  gateSubmitting: boolean;
+  canSubmitGate: boolean;
+  onGateSubmit: () => void;
+}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle, gatePending, gateSubmitting, canSubmitGate, onGateSubmit }) => {
   const canUndo = useAuiState((s) => s.thread.messages.length > 0);
   const isRunning = useAuiState((s) => s.thread.isRunning);
   const composerRuntime = useComposerRuntime();
@@ -518,7 +545,7 @@ const ComposerAction: FC<{
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="flex items-center gap-1">
-        <ComposerAddAttachment />
+        {!gatePending && <ComposerAddAttachment />}
         {onAutoSpeakToggle && voiceCaps.ttsAvailable && (
           <TooltipIconButton
             tooltip={autoSpeak ? "Auto-speak on (click to turn off)" : "Auto-speak off (click to turn on)"}
@@ -579,6 +606,21 @@ const ComposerAction: FC<{
             <MicIcon className="size-4" />
           )}
         </TooltipIconButton>}
+        {gatePending && (
+          <TooltipIconButton
+            tooltip="Send decision"
+            side="bottom"
+            type="button"
+            variant="default"
+            size="icon"
+            className="aui-composer-send size-7 rounded-full"
+            aria-label="Send decision"
+            onClick={onGateSubmit}
+            disabled={!canSubmitGate || gateSubmitting}
+          >
+            <ArrowUpIcon className="aui-composer-send-icon size-4.5" />
+          </TooltipIconButton>
+        )}
         <AuiIf condition={(s) => !s.thread.isRunning}>
           <ComposerPrimitive.Send asChild>
             <TooltipIconButton
@@ -594,7 +636,7 @@ const ComposerAction: FC<{
             </TooltipIconButton>
           </ComposerPrimitive.Send>
         </AuiIf>
-        <AuiIf condition={(s) => s.thread.isRunning}>
+        <AuiIf condition={(s) => s.thread.isRunning && !gatePending}>
           <ComposerPrimitive.Cancel asChild>
             <Button
               type="button"
@@ -708,7 +750,7 @@ const InlineGate: FC<{ gate: Gate | null }> = ({ gate }) => {
               variant="outline"
               size="sm"
               className="rounded-full text-sm"
-              onClick={() => onGateChoice(opt)}
+              onClick={() => void onGateChoice(opt)}
             >
               {opt}
             </Button>
