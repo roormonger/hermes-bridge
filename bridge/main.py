@@ -114,6 +114,7 @@ async def _on_startup() -> None:
 class ChatRequest(BaseModel):
     chat_id: str
     message: str
+    assistant_message_id: Optional[int] = None
 
 
 class GateResolveRequest(BaseModel):
@@ -256,7 +257,7 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
     _verify_chat_access(request.chat_id, current_user)
     loop = asyncio.get_running_loop()
     if _BACKEND == "gateway":
-        return await _chat_gateway(request, loop)
+        return await _chat_gateway(request, loop, current_user["user_id"])
     return await _chat_pty(request, loop)
 
 
@@ -540,11 +541,18 @@ async def set_model(request: ModelSwitchRequest, current_user: dict = Depends(ge
 # Gateway backend
 # ---------------------------------------------------------------------------
 
-async def _chat_gateway(request: ChatRequest, loop: asyncio.AbstractEventLoop) -> StreamingResponse:
+async def _chat_gateway(
+    request: ChatRequest, loop: asyncio.AbstractEventLoop, user_id: Optional[str]
+) -> StreamingResponse:
     hermes_sid = store.get_hermes_session_id(request.chat_id)
     gw = sessions.get_or_create(request.chat_id, hermes_sid, loop)  # type: ignore[attr-defined]
 
     pending = gw.get_pending_gate()
+    if pending is None and gw.is_turn_active():
+        return StreamingResponse(
+            _sse_stream_gateway(gw, request.assistant_message_id, user_id),
+            media_type="text/event-stream",
+        )
     if pending is not None:
         gate_kind = pending.get("gate_kind", "approval")
         gate_id = pending.get("gate_id", "")
@@ -566,45 +574,103 @@ async def _chat_gateway(request: ChatRequest, loop: asyncio.AbstractEventLoop) -
             await loop.run_in_executor(None, gw.respond_gate, gate_kind, gate_id, choice)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return StreamingResponse(_sse_stream_gateway(gw), media_type="text/event-stream")
+        return StreamingResponse(
+            _sse_stream_gateway(gw, request.assistant_message_id, user_id),
+            media_type="text/event-stream",
+        )
 
     try:
         await loop.run_in_executor(None, gw.submit, request.message)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    return StreamingResponse(_sse_stream_gateway(gw), media_type="text/event-stream")
+    return StreamingResponse(
+        _sse_stream_gateway(gw, request.assistant_message_id, user_id),
+        media_type="text/event-stream",
+    )
 
 
-async def _sse_stream_gateway(gw) -> AsyncGenerator[bytes, None]:
+async def _sse_stream_gateway(
+    gw, assistant_message_id: Optional[int] = None, user_id: Optional[str] = None
+) -> AsyncGenerator[bytes, None]:
     """Translate tui_gateway JSON-RPC frames into SSE events for the web UI."""
-    while True:
-        frame = await gw.queue.get()
-        event = _translate_event(frame)
+    content = ""
+    tool_steps: list[dict] = []
+    if assistant_message_id is not None:
+        existing = next(
+            (
+                message
+                for message in reversed(history.get_messages(gw.chat_id, user_id))
+                if message["id"] == assistant_message_id and message["role"] == "assistant"
+            ),
+            None,
+        )
+        if existing is not None:
+            content = existing["content"]
+            tool_steps = existing["tool_steps"]
 
-        if event is None:
-            if "error" in frame:
-                event = {"type": "error", "message": frame["error"].get("message", "RPC error")}
-            else:
-                continue
+    async with gw.stream_lock:
+        while True:
+            frame = await gw.queue.get()
+            event = _translate_event(frame)
 
-        yield f"data: {json.dumps(event)}\n\n".encode("utf-8")
+            if event is None:
+                if "error" in frame:
+                    event = {"type": "error", "message": frame["error"].get("message", "RPC error")}
+                else:
+                    continue
 
-        etype = event.get("type", "")
+            etype = event.get("type", "")
+            if etype == "text":
+                content += event.get("text", "")
+            elif etype == "tool_start":
+                source_id = event.get("tool_id") or event.get("name", "")
+                tool_steps.append(
+                    {
+                        "id": f"{assistant_message_id}-tool-{len(tool_steps)}-{source_id}",
+                        "sourceId": source_id,
+                        "name": event.get("name", ""),
+                        "context": event.get("context", ""),
+                        "status": "running",
+                    }
+                )
+            elif etype == "tool_complete":
+                source_id = event.get("tool_id") or event.get("name", "")
+                index = next(
+                    (
+                        i
+                        for i in range(len(tool_steps) - 1, -1, -1)
+                        if tool_steps[i].get("status") == "running"
+                        and (
+                            tool_steps[i].get("sourceId") == source_id
+                            or tool_steps[i].get("name") == event.get("name", "")
+                        )
+                    ),
+                    -1,
+                )
+                if index >= 0:
+                    tool_steps[index] = {
+                        **tool_steps[index],
+                        "summary": event.get("summary", ""),
+                        "durationS": event.get("duration_s"),
+                        "status": "done",
+                    }
 
-        if etype == "gate_interrupt":
-            gw.set_pending_gate(event)
-            if gw.hermes_session_id:
+            if assistant_message_id is not None:
+                history.update_message(assistant_message_id, user_id, content, tool_steps)
+
+            terminal = etype in ("gate_interrupt", "turn_complete", "error")
+            if etype == "gate_interrupt":
+                gw.set_pending_gate(event)
+            if terminal:
+                gw.mark_turn_finished()
+            if etype in ("gate_interrupt", "turn_complete") and gw.hermes_session_id:
                 store.set_hermes_session_id(gw.chat_id, gw.hermes_session_id)
-            return
 
-        if etype == "turn_complete":
-            if gw.hermes_session_id:
-                store.set_hermes_session_id(gw.chat_id, gw.hermes_session_id)
-            return
+            yield f"data: {json.dumps(event)}\n\n".encode("utf-8")
 
-        if etype == "error":
-            return
+            if terminal:
+                return
 
 
 # ---------------------------------------------------------------------------
@@ -680,6 +746,25 @@ async def resolve_gate(request: GateResolveRequest, current_user: dict = Depends
     return {"status": "resolved", "gate_id": request.gate_id}
 
 
+@app.get("/v1/chat/status")
+async def chat_status(chat_id: str, current_user: dict = Depends(get_current_user)) -> dict:
+    _verify_chat_access(chat_id, current_user)
+    if _BACKEND != "gateway":
+        return {"recoverable": False, "active": False, "queued_events": 0, "pending_gate": None}
+    session = sessions.get(chat_id)
+    if session is None:
+        return {"recoverable": False, "active": False, "queued_events": 0, "pending_gate": None}
+    pending_gate = session.get_pending_gate()
+    queued_events = session.queue.qsize()
+    active = session.is_turn_active() if _BACKEND == "gateway" else False
+    return {
+        "recoverable": active or pending_gate is not None,
+        "active": active,
+        "queued_events": queued_events,
+        "pending_gate": pending_gate,
+    }
+
+
 @app.post("/v1/chat/drain")
 async def drain(request: ChatRequest, current_user: dict = Depends(get_current_user)) -> StreamingResponse:
     """Resume streaming output after a gate was resolved out-of-band."""
@@ -690,7 +775,10 @@ async def drain(request: ChatRequest, current_user: dict = Depends(get_current_u
     if session is None:
         raise HTTPException(status_code=404, detail=f"No active session for chat {request.chat_id}")
     if _BACKEND == "gateway":
-        return StreamingResponse(_sse_stream_gateway(session), media_type="text/event-stream")  # type: ignore[arg-type]
+        return StreamingResponse(
+            _sse_stream_gateway(session, request.assistant_message_id, current_user["user_id"]),
+            media_type="text/event-stream",
+        )  # type: ignore[arg-type]
     return StreamingResponse(_sse_stream_pty(session), media_type="text/event-stream")
 
 

@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Plus, Trash2, Pencil, Pin, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu, Sun, Moon, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatUsage, saveChatUsage, saveMessageUsage, setModel, undoLastTurn, streamEvents, speakText, type SseEvent } from "./api";
+import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatStatus, getChatUsage, saveChatUsage, saveMessageUsage, setModel, undoLastTurn, streamEvents, speakText, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
 import { useAutoSpeak } from "./hooks/useAutoSpeak";
 import { useVoiceCapabilities } from "./hooks/useVoiceCapabilities";
@@ -943,6 +943,7 @@ function ChatApp() {
   const autoSpeakRef = useRef(autoSpeak);
   autoSpeakRef.current = autoSpeak;
   const [pendingGate, setPendingGate] = useState<Gate | null>(null);
+  const [recoveryCandidate, setRecoveryCandidate] = useState<{ chatId: string; message: ChatMessage } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [currentModelDisplay, setCurrentModelDisplay] = useState<string>("");
@@ -990,17 +991,20 @@ function ChatApp() {
   const loadMessages = useCallback(async (chatId: string) => {
     try {
       const data = await apiFetch(`/api/chats/${chatId}/messages`);
-      setMessages(
-        data.map((m: any) => ({
-          id: String(m.id),
-          role: m.role,
-          content: m.role === "assistant" ? formatAssistantText(m.content) : m.content,
-          images: m.images?.length ? m.images : undefined,
-          status: m.role === "assistant" ? ("complete" as const) : undefined,
-          toolSteps: m.tool_steps?.length ? m.tool_steps : undefined,
-          createdAt: m.created_at ? m.created_at * 1000 : Date.now(),
-          usage: m.usage || undefined,
-        }))
+      const loadedMessages: ChatMessage[] = data.map((m: any) => ({
+        id: String(m.id),
+        role: m.role,
+        content: m.role === "assistant" ? formatAssistantText(m.content) : m.content,
+        images: m.images?.length ? m.images : undefined,
+        status: m.role === "assistant" ? ("complete" as const) : undefined,
+        toolSteps: m.tool_steps?.length ? m.tool_steps : undefined,
+        createdAt: m.created_at ? m.created_at * 1000 : Date.now(),
+        usage: m.usage || undefined,
+      }));
+      setMessages(loadedMessages);
+      const lastMessage = loadedMessages.at(-1);
+      setRecoveryCandidate(
+        lastMessage?.role === "assistant" ? { chatId, message: lastMessage } : null,
       );
     } catch (e) {
       setError((e as Error).message);
@@ -1034,6 +1038,8 @@ function ChatApp() {
 
   useEffect(() => {
     usageKnownRef.current = false;
+    setRecoveryCandidate(null);
+    setPendingGate(null);
     if (currentChatId) {
       loadMessages(currentChatId);
       setSessionInfo({});
@@ -1342,6 +1348,59 @@ function ChatApp() {
     [setChats]
   );
 
+  useEffect(() => {
+    if (!recoveryCandidate || recoveryCandidate.chatId !== currentChatId) return;
+
+    const ac = new AbortController();
+    let attached = false;
+    const recover = async () => {
+      try {
+        const status = await getChatStatus(recoveryCandidate.chatId);
+        if (ac.signal.aborted || !status?.recoverable) return;
+
+        const assistantId = recoveryCandidate.message.id;
+        assistantIdRef.current = assistantId;
+        assistantContentRef.current = recoveryCandidate.message.content;
+        assistantToolStepsRef.current = recoveryCandidate.message.toolSteps ?? [];
+
+        if (status.pending_gate) {
+          const gate: Gate = {
+            gateId: status.pending_gate.gate_id,
+            gateKind: status.pending_gate.gate_kind || "approval",
+            options: status.pending_gate.options || [],
+            prompt: status.pending_gate.prompt || "",
+          };
+          setPendingGate(gate);
+          setMessages((prev) => prev.map((message) =>
+            message.id === assistantId ? { ...message, gate, status: "running" } : message,
+          ));
+          return;
+        }
+
+        attached = true;
+        abortControllerRef.current = ac;
+        setIsRunning(true);
+        setMessages((prev) => prev.map((message) =>
+          message.id === assistantId ? { ...message, status: "running" } : message,
+        ));
+        await streamEvents(
+          "/v1/chat/drain",
+          { chat_id: recoveryCandidate.chatId, message: "", assistant_message_id: Number(assistantId) },
+          (event) => handleStreamEvent(event, recoveryCandidate.chatId, assistantId),
+          ac.signal,
+        );
+      } catch (e) {
+        if ((e as Error).name !== "AbortError") setError((e as Error).message);
+      } finally {
+        if (attached && !ac.signal.aborted) setIsRunning(false);
+        if (abortControllerRef.current === ac) abortControllerRef.current = null;
+      }
+    };
+
+    recover();
+    return () => ac.abort();
+  }, [currentChatId, handleStreamEvent, recoveryCandidate]);
+
   const streamAssistant = async (chatId: string, userText: string) => {
     setIsRunning(true);
     setError(null);
@@ -1374,7 +1433,7 @@ function ChatApp() {
     try {
       await streamEvents(
         "/v1/chat",
-        { chat_id: chatId, message: userText },
+        { chat_id: chatId, message: userText, assistant_message_id: Number(assistantId) },
         (event) => handleStreamEvent(event, chatId, assistantId),
         ac.signal,
       );
@@ -1460,7 +1519,7 @@ function ChatApp() {
       if (!assistantId) return;
       await streamEvents(
         "/v1/chat/drain",
-        { chat_id: chatId, message: "" },
+        { chat_id: chatId, message: "", assistant_message_id: Number(assistantId) },
         (event) => handleStreamEvent(event, chatId, assistantId)
       );
     } catch (e) {
