@@ -8,6 +8,7 @@ import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ContextDisplay } from "@/components/context-display";
+import { DotMatrix } from "@/components/dot-matrix";
 import {
   Collapsible,
   CollapsibleContent,
@@ -722,6 +723,22 @@ const InlineGate: FC<{ gate: Gate | null }> = ({ gate }) => {
   );
 };
 
+const AssistantBusyIndicator: FC = () => {
+  const isRunning = useAuiState((s) => s.message.status?.type === "running");
+  const hasText = useAuiState((s) =>
+    s.message.content.some((part) => part.type === "text" && part.text.trim().length > 0)
+  );
+
+  if (!isRunning) return null;
+
+  return (
+    <DotMatrix
+      state={hasText ? "streaming" : "thinking"}
+      label={hasText ? "Hermes is responding" : "Hermes is thinking"}
+      className="my-1 size-5 text-primary"
+    />
+  );
+};
 const AssistantMessage: FC = () => {
   const ACTION_BAR_PT = "pt-1.5";
   const ACTION_BAR_HEIGHT = `-mb-7.5 min-h-7.5 ${ACTION_BAR_PT}`;
@@ -784,6 +801,7 @@ const AssistantMessage: FC = () => {
             }
           }}
         </MessagePrimitive.GroupedParts>
+        <AssistantBusyIndicator />
         <InlineGate gate={meta.gate ?? null} />
         <MessageError />
       </div>
