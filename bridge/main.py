@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile, WebSocket, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -77,6 +77,11 @@ else:
 _webui_dir = (_plugin_dir() or Path(__file__).resolve().parent.parent) / "webui" / "dist"
 if _webui_dir.exists():
     app.mount("/static", StaticFiles(directory=str(_webui_dir)), name="static")
+
+
+@app.get("/")
+async def root_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/chat")
 
 
 @app.get("/chat")
