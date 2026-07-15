@@ -94,7 +94,10 @@ async def chat_ui() -> FileResponse:
     if not index_path.exists():
         logger.error("hermes-chat web UI not found at %s", index_path)
         raise HTTPException(status_code=404, detail=f"web UI not found at {index_path}")
-    return FileResponse(str(index_path))
+    return FileResponse(
+        str(index_path),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
+    )
 
 
 @app.on_event("shutdown")

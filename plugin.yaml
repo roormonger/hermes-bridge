@@ -1,5 +1,5 @@
 name: hermes-chat
-version: 0.3.0
+version: 0.3.1
 description: >
   Hermes Chat — a standalone web chat UI for the Hermes Agent.
   Exposes a FastAPI backend with streaming, tool-step display, and TUI gateway support.

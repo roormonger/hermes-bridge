@@ -1098,12 +1098,12 @@ function ChatApp() {
   }, [currentChatId]);
 
   useEffect(() => {
-    if (!currentChatId) return;
+    if (!currentChatId || isRunning) return;
     const interval = setInterval(() => {
       refreshUsage(currentChatId);
     }, 3000);
     return () => clearInterval(interval);
-  }, [currentChatId, refreshUsage]);
+  }, [currentChatId, isRunning, refreshUsage]);
 
   const createChat = async () => {
     try {
@@ -1274,7 +1274,7 @@ function ChatApp() {
               : m
           )
         );
-        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current);
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current).catch(() => {});
       } else if (event.type === "turn_complete") {
         setMessages((prev) =>
           prev.map((m) =>
@@ -1284,7 +1284,7 @@ function ChatApp() {
           )
         );
         setIsRunning(false);
-        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current);
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current).catch(() => {});
         if (autoSpeakRef.current && voiceCaps.ttsAvailable && assistantContentRef.current.trim()) {
           speakText(assistantContentRef.current, undefined, ttsVoice).then((url) => {
             const audio = new Audio(url);
@@ -1323,9 +1323,6 @@ function ChatApp() {
         };
         setThreadUsage(nextUsage);
         threadUsageRef.current = nextUsage;
-        if (!event.context_window && !event.total_tokens) {
-          refreshUsage(chatId);
-        }
         if (event.model) {
           const provider = event.gateway || event.api_provider || event.provider || "";
           const providerLower = provider.toLowerCase();
@@ -1343,6 +1340,9 @@ function ChatApp() {
           }
         }
       } else if (event.type === "process_exit" || event.type === "error") {
+        const failure = event.type === "error" ? event.message : "Hermes stopped before returning a response.";
+        if (!assistantContentRef.current.trim()) assistantContentRef.current = `⚠️ ${failure}`;
+        setError(failure);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -1351,7 +1351,7 @@ function ChatApp() {
           )
         );
         setIsRunning(false);
-        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current);
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current).catch(() => {});
       }
     },
     [setChats]
@@ -1463,13 +1463,18 @@ function ChatApp() {
         setIsRunning(false);
         return;
       }
-      setError((e as Error).message);
+      const failure = (e as Error).message || "Hermes failed before returning a response.";
+      if (!assistantContentRef.current.trim()) assistantContentRef.current = `⚠️ ${failure}`;
+      setError(failure);
       setIsRunning(false);
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === assistantId ? { ...m, status: "complete", gate: null } : m
+          m.id === assistantId
+            ? { ...m, content: assistantContentRef.current, status: "complete", gate: null }
+            : m
         )
       );
+      updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current).catch(() => {});
     }
 
     let afterUsage: ChatMessage["usage"] = {};

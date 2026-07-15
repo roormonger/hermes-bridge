@@ -112,7 +112,8 @@ def _translate_event(frame: dict) -> Optional[dict]:
 
     params = frame.get("params", {})
     etype = params.get("type", "")
-    payload = params.get("payload", {})
+    nested_payload = params.get("payload")
+    payload = nested_payload if isinstance(nested_payload, dict) else params
 
     if etype == "message.delta":
         text = payload.get("text") or payload.get("delta") or ""
@@ -369,7 +370,9 @@ class GatewaySession:
             with self._lock:
                 self.hermes_session_id = None
             sid = self.ensure_session()
-            self._call("prompt.submit", {"session_id": sid, "text": text})
+            result = self._call("prompt.submit", {"session_id": sid, "text": text})
+        if isinstance(result, dict) and "error" in result:
+            raise RuntimeError(result["error"].get("message", "prompt.submit failed"))
 
     # ------------------------------------------------------------------
     def attach_image_bytes(self, content_base64: str, filename: str = "") -> dict:

@@ -5,6 +5,7 @@ import json
 import unittest
 
 from hermes_chat.chat_runs import ChatRunManager
+from hermes_chat.gateway_session import GatewaySession, _translate_event
 
 
 class FakeHistory:
@@ -148,6 +149,19 @@ class ChatRunManagerTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await self.start_run(message_id=2)
         self.assertEqual(self.session.submitted, ["hello"])
+
+    async def test_flat_gateway_event_payload_is_translated(self):
+        event = _translate_event({"method": "event", "params": {"type": "message.delta", "text": "visible"}})
+        self.assertEqual(event, {"type": "text", "text": "visible"})
+
+    async def test_prompt_submit_error_is_raised(self):
+        session = object.__new__(GatewaySession)
+        session.last_active = 0
+        session.ensure_session = lambda: "session-1"
+        session._call = lambda method, params: {"error": {"message": "provider unavailable"}}
+
+        with self.assertRaisesRegex(RuntimeError, "provider unavailable"):
+            session.submit("hello")
 
     async def test_cancel_interrupts_the_active_session(self):
         run = await self.start_run()
