@@ -21,7 +21,18 @@ from typing import Iterator, Optional
 
 from .config import data_dir
 
-DEFAULT_DB_PATH = data_dir() / "hermes_bridge.db"
+def _default_db_path() -> Path:
+    target = data_dir() / "hermes_chat.db"
+    legacy = data_dir() / "hermes_bridge.db"
+    if not target.exists() and legacy.exists():
+        try:
+            legacy.replace(target)
+        except OSError:
+            return legacy
+    return target
+
+
+DEFAULT_DB_PATH = _default_db_path()
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS chat_sessions (

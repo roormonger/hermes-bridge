@@ -1,4 +1,4 @@
-"""Background daemon lifecycle for hermes-bridge.
+"""Background daemon lifecycle for Hermes Chat.
 
 Provides start, stop, status, and a self-healing watchdog. The daemon runs
 uvicorn as a subprocess and polls /healthz; if health fails it restarts the
@@ -17,11 +17,14 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .config import BridgeConfig, data_dir, effective_hermes_bin, load_config, _plugin_dir
+from .config import ChatConfig, data_dir, effective_hermes_bin, load_config, _plugin_dir
 
-PID_FILE = data_dir() / "hermes-bridge.pid"
-LOCK_FILE = data_dir() / "hermes-bridge.start.lock"
-LOG_FILE = data_dir() / "hermes-bridge.log"
+PID_FILE = data_dir() / "hermes-chat.pid"
+LOCK_FILE = data_dir() / "hermes-chat.start.lock"
+LOG_FILE = data_dir() / "hermes-chat.log"
+_LEGACY_PID_FILE = data_dir() / "hermes-bridge.pid"
+_LEGACY_LOCK_FILE = data_dir() / "hermes-bridge.start.lock"
+_LEGACY_LOG_FILE = data_dir() / "hermes-bridge.log"
 WATCHDOG_INTERVAL = 5
 WATCHDOG_FAIL_THRESHOLD = 3
 
@@ -49,12 +52,14 @@ def _release_start_lock() -> None:
 
 
 def _read_pid() -> int | None:
-    if not PID_FILE.exists():
-        return None
-    try:
-        return int(PID_FILE.read_text().strip())
-    except ValueError:
-        return None
+    for path in (PID_FILE, _LEGACY_PID_FILE):
+        if not path.exists():
+            continue
+        try:
+            return int(path.read_text().strip())
+        except ValueError:
+            continue
+    return None
 
 
 def is_running() -> bool:
@@ -83,7 +88,7 @@ def status() -> dict:
     return {"running": running, "pid": pid, "healthy": healthy, "config": config.to_dict()}
 
 
-def _start_uvicorn(config: BridgeConfig) -> subprocess.Popen:
+def _start_uvicorn(config: ChatConfig) -> subprocess.Popen:
     env = os.environ.copy()
     env["HERMES_BIN"] = effective_hermes_bin(config)
     plugin_dir = _plugin_dir()
@@ -95,7 +100,7 @@ def _start_uvicorn(config: BridgeConfig) -> subprocess.Popen:
         sys.executable,
         "-m",
         "uvicorn",
-        "bridge.main:app",
+        "hermes_chat.main:app",
         "--host",
         config.host,
         "--port",
@@ -116,7 +121,7 @@ def _start_uvicorn(config: BridgeConfig) -> subprocess.Popen:
     return subprocess.Popen(cmd, **kwargs)
 
 
-def _watchdog(config: BridgeConfig, proc: subprocess.Popen) -> None:
+def _watchdog(config: ChatConfig, proc: subprocess.Popen) -> None:
     """Monitor the uvicorn child and trigger a restart if it becomes unhealthy."""
     consecutive_failures = 0
     while proc.poll() is None:
@@ -160,6 +165,7 @@ def _daemon_loop() -> None:
         config = load_config()
 
     PID_FILE.unlink(missing_ok=True)
+    _LEGACY_PID_FILE.unlink(missing_ok=True)
 
 
 def start() -> dict:
@@ -171,7 +177,7 @@ def start() -> dict:
         return {"status": "already_running", **status()}
 
     try:
-        cmd = [sys.executable, "-m", "bridge.daemon", "_run"]
+        cmd = [sys.executable, "-m", "hermes_chat.daemon", "_run"]
         log = open(LOG_FILE, "a", encoding="utf-8")
         env = os.environ.copy()
         plugin_dir = _plugin_dir()
@@ -201,7 +207,7 @@ def start() -> dict:
 
 
 def _kill_port_processes(port: int) -> None:
-    """Best-effort kill of any process still listening on the bridge port."""
+    """Best-effort kill of any process still listening on the Hermes Chat port."""
     try:
         # Try lsof on Linux/macOS
         result = subprocess.run(
@@ -256,7 +262,7 @@ def _wait_for_port_free(port: int, timeout: float = 10.0) -> bool:
 
 
 def stop() -> dict:
-    """Stop the daemon and ensure the bridge port is released."""
+    """Stop the daemon and ensure the Hermes Chat port is released."""
     pid = _read_pid()
     config = load_config()
 
@@ -285,12 +291,14 @@ def stop() -> dict:
         except (ProcessLookupError, OSError):
             pass
 
-    # Also kill any leftover uvicorn process on the bridge port.
+    # Also kill any leftover uvicorn process on the Hermes Chat port.
     _kill_port_processes(config.port)
     _wait_for_port_free(config.port, timeout=5.0)
 
     PID_FILE.unlink(missing_ok=True)
     LOCK_FILE.unlink(missing_ok=True)
+    _LEGACY_PID_FILE.unlink(missing_ok=True)
+    _LEGACY_LOCK_FILE.unlink(missing_ok=True)
     return {"status": "stopped", "running": False, "pid": None, "healthy": False}
 
 
@@ -304,9 +312,10 @@ def restart() -> dict:
 
 def logs(tail: int = 50) -> str:
     """Return the last *tail* lines of the daemon log."""
-    if not LOG_FILE.exists():
+    path = LOG_FILE if LOG_FILE.exists() else _LEGACY_LOG_FILE
+    if not path.exists():
         return "No logs yet."
-    lines = LOG_FILE.read_text(encoding="utf-8").splitlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
     return "\n".join(lines[-tail:])
 
 
@@ -314,9 +323,9 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "_run":
         _daemon_loop()
     else:
-        # Allow direct invocation for debugging: python -m bridge.daemon start|stop|status
+        # Allow direct invocation for debugging: python -m hermes_chat.daemon start|stop|status
         if len(sys.argv) <= 1:
-            print("Usage: python -m bridge.daemon start|stop|restart|status|logs")
+            print("Usage: python -m hermes_chat.daemon start|stop|restart|status|logs")
             sys.exit(1)
         action = sys.argv[1]
         if action == "start":

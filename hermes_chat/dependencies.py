@@ -1,6 +1,6 @@
-"""Dependency check + optional self-install for the hermes-bridge plugin.
+"""Dependency check + optional self-install for the hermes-chat plugin.
 
-The bridge runs inside the same Python interpreter that Hermes uses, so its
+Hermes Chat runs inside the same Python interpreter that Hermes uses, so its
 runtime packages (FastAPI, uvicorn, pydantic, PyYAML) are expected to already be
 present in that environment. If they are not, this module can install them from
 `requirements.txt` so the plugin can start cleanly.

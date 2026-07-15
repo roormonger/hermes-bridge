@@ -97,6 +97,11 @@ class ChatHistoryStore:
             conn.commit()
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute("ALTER TABLE messages ADD COLUMN stream_seq INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
     def _user_where(self, user_id: Optional[str]) -> str:
@@ -183,18 +188,29 @@ class ChatHistoryStore:
         return cur.lastrowid
 
     def update_message(
-        self, message_id: int, user_id: Optional[str], content: str, tool_steps: list[dict] | None = None
+        self,
+        message_id: int,
+        user_id: Optional[str],
+        content: str,
+        tool_steps: list[dict] | None = None,
+        stream_seq: int | None = None,
     ) -> None:
         conn = self._conn()
         tool_steps_json = json.dumps(tool_steps) if tool_steps else None
+        if stream_seq is None:
+            assignments = "content = ?, tool_steps_json = ?"
+            params = (content, tool_steps_json, message_id, *self._user_params(user_id))
+        else:
+            assignments = "content = ?, tool_steps_json = ?, stream_seq = ?"
+            params = (content, tool_steps_json, stream_seq, message_id, *self._user_params(user_id))
         conn.execute(
             f"""
-            UPDATE messages SET content = ?, tool_steps_json = ?
+            UPDATE messages SET {assignments}
             WHERE id = ? AND chat_id IN (
                 SELECT chat_id FROM chats WHERE {self._user_where(user_id)}
             )
             """,
-            (content, tool_steps_json, message_id, *self._user_params(user_id)),
+            params,
         )
         conn.commit()
 
@@ -218,7 +234,7 @@ class ChatHistoryStore:
         if chat is None:
             return []
         rows = conn.execute(
-            "SELECT id, role, content, images, usage_json, tool_steps_json, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
+            "SELECT id, role, content, images, usage_json, tool_steps_json, stream_seq, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
             (chat_id,),
         ).fetchall()
         result = []
@@ -232,6 +248,25 @@ class ChatHistoryStore:
             d["tool_steps"] = json.loads(raw_tool_steps) if raw_tool_steps else []
             result.append(d)
         return result
+
+    def get_message(self, message_id: int, user_id: Optional[str]) -> Optional[dict]:
+        conn = self._conn()
+        row = conn.execute(
+            f"""
+            SELECT id, chat_id, role, content, tool_steps_json, stream_seq, created_at
+            FROM messages
+            WHERE id = ? AND chat_id IN (
+                SELECT chat_id FROM chats WHERE {self._user_where(user_id)}
+            )
+            """,
+            (message_id, *self._user_params(user_id)),
+        ).fetchone()
+        if row is None:
+            return None
+        message = dict(row)
+        raw_tool_steps = message.pop("tool_steps_json", None)
+        message["tool_steps"] = json.loads(raw_tool_steps) if raw_tool_steps else []
+        return message
 
     def delete_messages(self, chat_id: str, user_id: Optional[str]) -> None:
         conn = self._conn()

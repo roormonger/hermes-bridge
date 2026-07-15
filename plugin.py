@@ -19,9 +19,9 @@ _PLUGIN_ROOT = Path(__file__).resolve().parent
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
-from bridge.config import auth_secret, config_path, load_config, update_config
-from bridge.daemon import is_running, logs, restart, start, status, stop
-from bridge.dependencies import check_dependencies, check_optional_dependencies, install_dependencies
+from hermes_chat.config import auth_secret, config_path, load_config, update_config
+from hermes_chat.daemon import is_running, logs, restart, start, status, stop
+from hermes_chat.dependencies import check_dependencies, check_optional_dependencies, install_dependencies
 
 
 def _ensure_config() -> None:
@@ -38,7 +38,7 @@ def _ensure_config() -> None:
 
 
 def _setup_argparse(subparser):
-    subs = subparser.add_subparsers(dest="hermes_bridge_command")
+    subs = subparser.add_subparsers(dest="hermes_chat_command")
     subs.add_parser("start", help="Start the Hermes Chat daemon")
     subs.add_parser("stop", help="Stop the Hermes Chat daemon")
     subs.add_parser("restart", help="Restart the Hermes Chat daemon")
@@ -50,7 +50,7 @@ def _setup_argparse(subparser):
     test_parser = subs.add_parser("test-gates", help="Run gate-detection dev tests")
     test_parser.add_argument("-v", "--verbose", action="store_true", help="Print each passing test")
 
-    cfg_parser = subs.add_parser("configure", help="Write bridge config values")
+    cfg_parser = subs.add_parser("configure", help="Write Hermes Chat config values")
     cfg_parser.add_argument("--port", type=int, help="HTTP port")
     cfg_parser.add_argument("--host", type=str, help="HTTP host")
     cfg_parser.add_argument("--hermes-bin", type=str, help="Path to the hermes binary")
@@ -75,7 +75,7 @@ def _setup_argparse(subparser):
     )
 
     users_parser = subs.add_parser("users", help="Manage chat UI users")
-    users_subs = users_parser.add_subparsers(dest="hermes_bridge_users_command")
+    users_subs = users_parser.add_subparsers(dest="hermes_chat_users_command")
     users_subs.add_parser("list", help="List chat UI users")
     add_parser = users_subs.add_parser("add", help="Add a chat UI user")
     add_parser.add_argument("--username", required=True, help="Username for the new user")
@@ -85,7 +85,7 @@ def _setup_argparse(subparser):
 
 
 def _handle_cli(args) -> None:
-    cmd = getattr(args, "hermes_bridge_command", None)
+    cmd = getattr(args, "hermes_chat_command", None)
     if cmd is None:
         print("Usage: hermes hermes-chat {start|stop|restart|status|logs|configure|test-gates}")
         return
@@ -176,14 +176,14 @@ def _do_register(ctx) -> None:
     )
 
     ctx.register_tool(
-        name="hermes_bridge_configure",
-        toolset="hermes_bridge",
+        name="hermes_chat_configure",
+        toolset="hermes_chat",
         schema=_schema(
-            "hermes_bridge_configure",
+            "hermes_chat_configure",
             "Change Hermes Chat runtime configuration. Only server-side settings can be changed; Open WebUI settings must be edited in Open WebUI.",
             {
-                "port": {"type": "integer", "description": "HTTP port for the bridge server"},
-                "host": {"type": "string", "description": "HTTP host for the bridge server"},
+                "port": {"type": "integer", "description": "HTTP port for the Hermes Chat server"},
+                "host": {"type": "string", "description": "HTTP host for the Hermes Chat server"},
                 "hermes_bin": {"type": "string", "description": "Absolute path to the hermes CLI binary"},
                 "session_idle_timeout": {"type": "number", "description": "Seconds before idle Hermes PTY sessions are torn down"},
                 "gate_idle_threshold": {"type": "number", "description": "Seconds to wait for a gate prompt to settle"},
@@ -196,10 +196,10 @@ def _do_register(ctx) -> None:
     )
 
     ctx.register_tool(
-        name="hermes_bridge_status",
-        toolset="hermes_bridge",
+        name="hermes_chat_status",
+        toolset="hermes_chat",
         schema=_schema(
-            "hermes_bridge_status",
+            "hermes_chat_status",
             "Check whether the Hermes Chat daemon is running and healthy.",
             {},
         ),
@@ -207,10 +207,10 @@ def _do_register(ctx) -> None:
     )
 
     ctx.register_tool(
-        name="hermes_bridge_restart",
-        toolset="hermes_bridge",
+        name="hermes_chat_restart",
+        toolset="hermes_chat",
         schema=_schema(
-            "hermes_bridge_restart",
+            "hermes_chat_restart",
             "Restart the Hermes Chat daemon to pick up configuration changes.",
             {},
         ),
@@ -218,10 +218,10 @@ def _do_register(ctx) -> None:
     )
 
     ctx.register_tool(
-        name="hermes_bridge_install_dependencies",
-        toolset="hermes_bridge",
+        name="hermes_chat_install_dependencies",
+        toolset="hermes_chat",
         schema=_schema(
-            "hermes_bridge_install_dependencies",
+            "hermes_chat_install_dependencies",
             "Install the Python packages required by Hermes Chat into the Hermes environment if any are missing.",
             {},
         ),
@@ -229,10 +229,10 @@ def _do_register(ctx) -> None:
     )
 
     ctx.register_tool(
-        name="hermes_bridge_users",
-        toolset="hermes_bridge",
+        name="hermes_chat_users",
+        toolset="hermes_chat",
         schema=_schema(
-            "hermes_bridge_users",
+            "hermes_chat_users",
             "Manage users for the standalone Hermes chat UI. The Hermes admin is the chat admin. Use action=list to see users, action=add to create a user (requires username and password), action=delete to remove a user (requires user_id).",
             {
                 "action": {
@@ -319,7 +319,7 @@ def _tool_install_dependencies(_args: dict) -> str:
 def _user_store() -> Any:
     """Return a UserStore instance (lazy import to avoid bcrypt on load)."""
     try:
-        from bridge.users import UserStore
+        from hermes_chat.users import UserStore
     except ImportError as exc:
         raise RuntimeError(
             "Auth dependencies (bcrypt/pyjwt) are not installed. "
@@ -330,8 +330,8 @@ def _user_store() -> Any:
 
 
 def _handle_users_cli(args) -> str:
-    """CLI handler for `hermes hermes-bridge users ...`."""
-    sub = getattr(args, "hermes_bridge_users_command", None)
+    """CLI handler for `hermes hermes-chat users ...`."""
+    sub = getattr(args, "hermes_chat_users_command", None)
     store = _user_store()
     if sub == "list":
         users = store.list_users()
@@ -342,7 +342,7 @@ def _handle_users_cli(args) -> str:
     if sub == "delete":
         deleted = store.delete_user(args.user_id)
         return json.dumps({"status": "deleted" if deleted else "not_found", "user_id": args.user_id}, indent=2)
-    return json.dumps({"error": "Usage: hermes hermes-bridge users {list|add|delete}"}, indent=2)
+    return json.dumps({"error": "Usage: hermes hermes-chat users {list|add|delete}"}, indent=2)
 
 
 def _tool_users(args: dict) -> str:

@@ -24,7 +24,7 @@ def get_models_analytics(days: int = 30, profile: Optional[str] = None) -> dict[
         raise RuntimeError(f"hermes_state is not available: {exc}")
 
     if profile:
-        # Hermes Desktop supports named profiles; default bridge usage has no
+        # Hermes Desktop supports named profiles; default Hermes Chat usage has no
         # profile and reads the main HERMES_HOME state database.
         try:
             from hermes_cli.web_server import _open_session_db_for_profile

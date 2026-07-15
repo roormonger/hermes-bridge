@@ -1,6 +1,6 @@
 ---
 name: hermes-gateway-protocol
-description: "Reference for the Hermes tui_gateway JSON-RPC protocol as consumed by hermes-layer/bridge. Use when adding new gateway features (reasoning display, session usage, file/PDF attachments, TUI session import, multi-agent/subagent windows) or debugging bridge<->gateway RPC issues."
+description: "Reference for the Hermes tui_gateway JSON-RPC protocol as consumed by hermes-layer/hermes_chat. Use when adding new gateway features (reasoning display, session usage, file/PDF attachments, TUI session import, multi-agent/subagent windows) or debugging Hermes Chat<->gateway RPC issues."
 version: 1.0.0
 ---
 
@@ -23,15 +23,15 @@ Official docs: https://hermes-agent.nousresearch.com/docs/developer-guide/progra
 
 We use the TUI gateway because it's the only protocol that exposes slash
 commands, approval/clarify/sudo/secret gates, session branching, and
-multi-agent — i.e. "every Hermes feature". Our own `bridge/gateway_session.py`
+multi-agent — i.e. "every Hermes feature". Our own `hermes_chat/gateway_session.py`
 (`GatewaySession` class) wraps this: one Python subprocess-free RPC channel
 per chat, JSON-RPC requests via `_call()`, events drained onto an
 `asyncio.Queue` and translated to our SSE shape in `_translate_event()`.
 
-## RPC methods currently used by our bridge
+## RPC methods currently used by Hermes Chat
 
 - `session.create` — first message in a chat; returns `session_id`.
-- `session.info` — cheap liveness probe (used to detect stale DB session ids after a bridge restart — see `ensure_session()`).
+- `session.info` — cheap liveness probe (used to detect stale DB session ids after a Hermes Chat restart — see `ensure_session()`).
 - `prompt.submit` — send a user turn.
 - `image.attach_bytes` — attach base64 image before submitting a prompt.
 - `session.interrupt` — **now wired** (`GatewaySession.interrupt()`) to stop an in-flight turn from the stop button.
@@ -96,7 +96,7 @@ Events emitted by the gateway that we **don't** yet surface (grepped every
 | `agent.terminal.output` / close | subagent PTY passthrough | Only relevant if we ever add a "watch subagent" window. |
 
 Adding one of these is the same pattern every time: add a branch to
-`_translate_event()` in `bridge/gateway_session.py` mapping the gateway event
+`_translate_event()` in `hermes_chat/gateway_session.py` mapping the gateway event
 to a new SSE `type`, add that type to `SseEvent` in `webui/src/api.ts`, handle
 it in `handleStreamEvent` in `webui/src/App.tsx`.
 
@@ -188,19 +188,19 @@ from a real TUI session* in `session.list` / the `sessions` table.
 
 **Fix before shipping the import picker**: pass `{"source": "hermes-chat"}`
 (or similar) in that `session.create` call. This is a one-line change in
-`bridge/gateway_session.py::ensure_session()`. Without it, every chat created
+`hermes_chat/gateway_session.py::ensure_session()`. Without it, every chat created
 via the web UI would show up in its own "import from TUI" picker, and worse,
 re-importing one would resume a session that's already backing an existing
 hermes-chat conversation.
 
 ### Recommended import flow
 
-1. New endpoint e.g. `GET /v1/tui-sessions` → bridge calls `session.list`
+1. New endpoint e.g. `GET /v1/tui-sessions` → Hermes Chat calls `session.list`
    on a throwaway/shared `GatewaySession`, filters to `source == "tui"`
    (excluding `"hermes-chat"` and the internal `"tool"` deny-list already
    applied by the gateway), returns
    `{id, title, preview, started_at, message_count}[]` for a picker UI.
-2. `POST /v1/tui-sessions/{id}/import` → bridge calls `session.resume` with
+2. `POST /v1/tui-sessions/{id}/import` → Hermes Chat calls `session.resume` with
    that `session_id`, gets back `messages`. Create a new chat in
    `chat_history.py` (`create_chat`), bulk-insert the returned messages via
    `add_message()` (mapping `role` directly, `tool` role messages can be
@@ -250,7 +250,7 @@ model switching; the web UI just needs to wrap three JSON-RPC methods.
 
 ### Suggested implementation path in `hermes-layer`
 
-1. **Backend endpoints** in `bridge/main.py`:
+1. **Backend endpoints** in `hermes_chat/main.py`:
    - `GET /v1/models` → call `GatewaySession._call("model.options", {})` (or use
      the existing `/api/ws` passthrough). Use `explicit_only=True` if you only
      want providers the user has already configured, or
@@ -284,7 +284,7 @@ model switching; the web UI just needs to wrap three JSON-RPC methods.
   `--global` / `--session` can change this; the exact default is computed by
   `hermes_cli.model_switch.resolve_persist_behavior`.
 - **No session yet**: if the picker is opened before the first message, the
-  bridge's `GatewaySession` may not have a Hermes `session_id`. Either call
+  Hermes Chat `GatewaySession` may not have a Hermes `session_id`. Either call
   `GatewaySession.ensure_session()` first, or call `model.options` with no
   `session_id` and only apply the switch once the session exists.
 
@@ -348,7 +348,7 @@ it:
   the prompt text (everything else) — i.e. no `file.attach`/`data_url` RPC,
   just CLI flags/paths.
 - **Auth**: JWT, default admin/admin bootstrap — same shape as our own
-  `bridge` auth, nothing new there.
+  Hermes Chat auth, nothing new there.
 
 **Why our gateway-RPC approach is strictly better for feature parity with
 the TUI**: no per-turn subprocess spawn latency, native streaming events

@@ -1,8 +1,8 @@
-"""Configuration management for hermes-bridge.
+"""Configuration management for Hermes Chat.
 
-The bridge reads its runtime settings from a YAML config file. When running as a
+Hermes Chat reads its runtime settings from a YAML config file. When running as a
 Hermes plugin the file lives inside the plugin directory
-(~/.hermes/plugins/hermes-bridge/config.yaml). The standalone layout uses the
+(~/.hermes/plugins/hermes-chat/config.yaml). The standalone layout uses the
 repo root config.yaml.
 """
 
@@ -37,7 +37,7 @@ DEFAULTS: dict[str, Any] = {
 
 
 @dataclass
-class BridgeConfig:
+class ChatConfig:
     host: str
     port: int
     hermes_bin: str
@@ -97,7 +97,7 @@ def data_dir() -> Path:
     return d
 
 
-def load_config(path: Path | None = None) -> BridgeConfig:
+def load_config(path: Path | None = None) -> ChatConfig:
     """Load config from disk, merging with defaults."""
     cfg: dict[str, Any] = dict(DEFAULTS)
     target = path or config_path()
@@ -107,10 +107,10 @@ def load_config(path: Path | None = None) -> BridgeConfig:
                 cfg.update(yaml.safe_load(f) or {})
         except Exception:
             pass
-    return BridgeConfig(**cfg)
+    return ChatConfig(**cfg)
 
 
-def save_config(config: BridgeConfig, path: Path | None = None) -> None:
+def save_config(config: ChatConfig, path: Path | None = None) -> None:
     """Persist config to disk."""
     target = path or config_path()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -120,12 +120,12 @@ def save_config(config: BridgeConfig, path: Path | None = None) -> None:
         yaml.safe_dump(config.to_dict(), f, sort_keys=False)
 
 
-def update_config(updates: dict[str, Any], path: Path | None = None) -> BridgeConfig:
+def update_config(updates: dict[str, Any], path: Path | None = None) -> ChatConfig:
     """Update specific config keys and persist."""
     cfg = load_config(path)
     data = cfg.to_dict()
     data.update(updates)
-    new_cfg = BridgeConfig(**data)
+    new_cfg = ChatConfig(**data)
     save_config(new_cfg, path)
     return new_cfg
 
@@ -140,12 +140,12 @@ def auth_secret() -> str:
     return secret
 
 
-def effective_hermes_bin(config: BridgeConfig) -> str:
+def effective_hermes_bin(config: ChatConfig) -> str:
     """Return the Hermes binary path, env var wins over config."""
     return os.environ.get("HERMES_BIN", config.hermes_bin)
 
 
-def ensure_hermes_bin(config: BridgeConfig) -> str:
+def ensure_hermes_bin(config: ChatConfig) -> str:
     """Return the resolved Hermes binary or raise a clear error."""
     binary = effective_hermes_bin(config)
     resolved = shutil.which(binary)

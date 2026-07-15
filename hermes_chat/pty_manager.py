@@ -41,11 +41,11 @@ except ImportError:  # pragma: no cover - PTY is POSIX-only.
 # Configuration
 # --------------------------------------------------------------------------- #
 
-from .config import BridgeConfig, effective_hermes_bin
+from .config import ChatConfig, effective_hermes_bin
 
-logger = logging.getLogger("hermes_bridge.pty")
+logger = logging.getLogger("hermes_chat.pty")
 
-# Defaults are now supplied by BridgeConfig. These module-level fallbacks only
+# Defaults are now supplied by ChatConfig. These module-level fallbacks only
 # matter if the module is imported without config (e.g. ad-hoc testing).
 HERMES_BIN = os.environ.get("HERMES_BIN", "hermes")
 GATE_IDLE_THRESHOLD = float(os.environ.get("HERMES_GATE_IDLE_THRESHOLD", "0.35"))
@@ -153,11 +153,11 @@ class HermesPtySession:
         chat_id: str,
         hermes_session_id: str,
         loop: asyncio.AbstractEventLoop,
-        config: BridgeConfig | None = None,
+        config: ChatConfig | None = None,
     ) -> None:
         if pty is None:
             raise RuntimeError(
-                "The 'pty' module is POSIX-only. hermes-bridge's bridge "
+                "The 'pty' module is POSIX-only. The Hermes Chat "
                 "service must run on Linux/macOS (or WSL), not native Windows."
             )
 
@@ -420,7 +420,7 @@ class HermesPtySession:
 class SessionManager:
     """Owns all live `HermesPtySession`s, keyed by Open WebUI chat_id."""
 
-    def __init__(self, config: BridgeConfig | None = None) -> None:
+    def __init__(self, config: ChatConfig | None = None) -> None:
         self._sessions: dict[str, HermesPtySession] = {}
         self._lock = threading.Lock()
         self._reaper_started = False

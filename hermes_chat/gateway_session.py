@@ -44,7 +44,7 @@ import time
 import uuid
 from typing import Any, Optional
 
-logger = logging.getLogger("hermes_bridge.gateway")
+logger = logging.getLogger("hermes_chat.gateway")
 
 # ---------------------------------------------------------------------------
 # Import guard — fail loudly if tui_gateway is not available so the caller
@@ -360,7 +360,7 @@ class GatewaySession:
         self.last_active = time.monotonic()
         sid = self.ensure_session()
         result = self._call("prompt.submit", {"session_id": sid, "text": text})
-        # 4001 = session not found (e.g. bridge restarted, in-memory state wiped)
+        # 4001 = session not found (e.g. Hermes Chat restarted, in-memory state wiped)
         # Reset and recreate the session, then retry once.
         if isinstance(result, dict) and result.get("error", {}).get("code") == 4001:
             logger.warning(

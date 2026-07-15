@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Plus, Trash2, Pencil, Pin, MessageSquare, Check, X, LogOut, PanelLeftClose, PanelLeftOpen, Menu, Sun, Moon, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getChatUsage, saveChatUsage, saveMessageUsage, setModel, undoLastTurn, streamEvents, speakText, type SseEvent } from "./api";
+import { apiFetch, getModels, getAnalyticsModels, getCurrentModel, getUsage, getActiveChatRun, getChatUsage, saveChatUsage, saveMessageUsage, setModel, startChatRun, streamChatRun, streamEvents, undoLastTurn, speakText, type SseEvent } from "./api";
 import { useAuth, AuthProvider, AuthGuard } from "./auth";
 import { useAutoSpeak } from "./hooks/useAutoSpeak";
 import { useVoiceCapabilities } from "./hooks/useVoiceCapabilities";
@@ -69,6 +69,7 @@ type ChatMessage = {
   status?: "running" | "complete";
   gate?: Gate | null;
   toolSteps?: ToolStep[];
+  streamSeq?: number;
   createdAt?: number;
   usage?: {
     inputTokens?: number;
@@ -943,6 +944,7 @@ function ChatApp() {
   const autoSpeakRef = useRef(autoSpeak);
   autoSpeakRef.current = autoSpeak;
   const [pendingGate, setPendingGate] = useState<Gate | null>(null);
+  const [recoveryCandidate, setRecoveryCandidate] = useState<{ chatId: string; message: ChatMessage } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [currentModelDisplay, setCurrentModelDisplay] = useState<string>("");
@@ -967,6 +969,8 @@ function ChatApp() {
   const assistantIdRef = useRef<string | null>(null);
   const assistantContentRef = useRef("");
   const assistantToolStepsRef = useRef<ToolStep[]>([]);
+  const streamSeqRef = useRef(0);
+  const runIdRef = useRef<string | null>(null);
   const currentChatIdRef = useRef(currentChatId);
   const abortControllerRef = useRef<AbortController | null>(null);
   const threadUsageRef = useRef<ChatMessage["usage"]>({});
@@ -990,17 +994,21 @@ function ChatApp() {
   const loadMessages = useCallback(async (chatId: string) => {
     try {
       const data = await apiFetch(`/api/chats/${chatId}/messages`);
-      setMessages(
-        data.map((m: any) => ({
-          id: String(m.id),
-          role: m.role,
-          content: m.role === "assistant" ? formatAssistantText(m.content) : m.content,
-          images: m.images?.length ? m.images : undefined,
-          status: m.role === "assistant" ? ("complete" as const) : undefined,
-          toolSteps: m.tool_steps?.length ? m.tool_steps : undefined,
-          createdAt: m.created_at ? m.created_at * 1000 : Date.now(),
-          usage: m.usage || undefined,
-        }))
+      const loadedMessages: ChatMessage[] = data.map((m: any) => ({
+        id: String(m.id),
+        role: m.role,
+        content: m.role === "assistant" ? formatAssistantText(m.content) : m.content,
+        images: m.images?.length ? m.images : undefined,
+        status: m.role === "assistant" ? ("complete" as const) : undefined,
+        toolSteps: m.tool_steps?.length ? m.tool_steps : undefined,
+        streamSeq: Number(m.stream_seq || 0),
+        createdAt: m.created_at ? m.created_at * 1000 : Date.now(),
+        usage: m.usage || undefined,
+      }));
+      setMessages(loadedMessages);
+      const latest = loadedMessages.at(-1);
+      setRecoveryCandidate(
+        latest?.role === "assistant" ? { chatId, message: latest } : null,
       );
     } catch (e) {
       setError((e as Error).message);
@@ -1034,6 +1042,9 @@ function ChatApp() {
 
   useEffect(() => {
     usageKnownRef.current = false;
+    setRecoveryCandidate(null);
+    setPendingGate(null);
+    runIdRef.current = null;
     if (currentChatId) {
       loadMessages(currentChatId);
       setSessionInfo({});
@@ -1187,6 +1198,10 @@ function ChatApp() {
 
   const handleStreamEvent = useCallback(
     (event: SseEvent, chatId: string, assistantId: string) => {
+      if (event.seq !== undefined) {
+        if (event.seq <= streamSeqRef.current) return;
+        streamSeqRef.current = event.seq;
+      }
       if (event.type === "text") {
         assistantContentRef.current = formatAssistantText(
           assistantContentRef.current + event.text
@@ -1342,11 +1357,61 @@ function ChatApp() {
     [setChats]
   );
 
+  useEffect(() => {
+    if (!recoveryCandidate || recoveryCandidate.chatId !== currentChatId) return;
+
+    const ac = new AbortController();
+    const recover = async () => {
+      try {
+        const status = await getActiveChatRun(recoveryCandidate.chatId);
+        const run = status.run;
+        if (ac.signal.aborted || !status.active || !run) return;
+
+        const assistantId = recoveryCandidate.message.id;
+        assistantIdRef.current = assistantId;
+        assistantContentRef.current = recoveryCandidate.message.content;
+        assistantToolStepsRef.current = recoveryCandidate.message.toolSteps ?? [];
+        streamSeqRef.current = recoveryCandidate.message.streamSeq ?? 0;
+        runIdRef.current = run.run_id;
+        abortControllerRef.current = ac;
+        setIsRunning(true);
+
+        if (run.pending_gate) {
+          setPendingGate({
+            gateId: run.pending_gate.gate_id,
+            gateKind: run.pending_gate.gate_kind || "approval",
+            options: run.pending_gate.options || [],
+            prompt: run.pending_gate.prompt || "",
+          });
+        }
+        setMessages((prev) => prev.map((message) =>
+          message.id === assistantId ? { ...message, status: "running" } : message,
+        ));
+        await streamChatRun(
+          run.run_id,
+          streamSeqRef.current,
+          (event) => handleStreamEvent(event, recoveryCandidate.chatId, assistantId),
+          ac.signal,
+        );
+      } catch (e) {
+        if ((e as Error).name !== "AbortError") setError((e as Error).message);
+      } finally {
+        if (!ac.signal.aborted) setIsRunning(false);
+        if (abortControllerRef.current === ac) abortControllerRef.current = null;
+      }
+    };
+
+    recover();
+    return () => ac.abort();
+  }, [currentChatId, handleStreamEvent, recoveryCandidate]);
+
   const streamAssistant = async (chatId: string, userText: string) => {
     setIsRunning(true);
     setError(null);
     assistantContentRef.current = "";
     assistantToolStepsRef.current = [];
+    streamSeqRef.current = 0;
+    runIdRef.current = null;
 
     let beforeUsage: ChatMessage["usage"] = {};
     try {
@@ -1372,12 +1437,27 @@ function ChatApp() {
     const ac = new AbortController();
     abortControllerRef.current = ac;
     try {
-      await streamEvents(
-        "/v1/chat",
-        { chat_id: chatId, message: userText },
-        (event) => handleStreamEvent(event, chatId, assistantId),
-        ac.signal,
-      );
+      try {
+        const run = await startChatRun(chatId, userText, assistantId);
+        runIdRef.current = run.run_id;
+        await streamChatRun(
+          run.run_id,
+          streamSeqRef.current,
+          (event) => handleStreamEvent(event, chatId, assistantId),
+          ac.signal,
+        );
+      } catch (e) {
+        const message = (e as Error).message;
+        if (runIdRef.current || (!message.includes("Durable chat runs require") && !message.includes("Not Found"))) {
+          throw e;
+        }
+        await streamEvents(
+          "/v1/chat",
+          { chat_id: chatId, message: userText },
+          (event) => handleStreamEvent(event, chatId, assistantId),
+          ac.signal,
+        );
+      }
     } catch (e) {
       if ((e as Error).name === "AbortError") {
         setIsRunning(false);
@@ -1458,11 +1538,9 @@ function ChatApp() {
       });
       const assistantId = assistantIdRef.current;
       if (!assistantId) return;
-      await streamEvents(
-        "/v1/chat/drain",
-        { chat_id: chatId, message: "" },
-        (event) => handleStreamEvent(event, chatId, assistantId)
-      );
+      setMessages((prev) => prev.map((message) =>
+        message.id === assistantId ? { ...message, gate: null, status: "running" } : message,
+      ));
     } catch (e) {
       setError((e as Error).message);
       setIsRunning(false);

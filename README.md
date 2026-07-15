@@ -12,6 +12,7 @@ Hermes Chat gives you a clean, modern chat interface that talks directly to the 
 - [Quickstart](#quickstart)
 - [API reference](#api-reference)
 - [Configuration reference](#configuration-reference)
+- [Upgrade compatibility](#upgrade-compatibility)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
@@ -21,25 +22,27 @@ Hermes Chat gives you a clean, modern chat interface that talks directly to the 
 ```
 Browser
         │
-        │  POST /v1/chat {chat_id, message}
+        │  POST /v1/chat/runs
         ▼
 Hermes Chat  (FastAPI daemon)
-        │
+        │  owns run lifecycle and persists each event
         │  JSON-RPC: session.create / prompt.submit
         ▼
 tui_gateway  (in-process, part of Hermes)
         │
         │  events: message.delta, tool.start, tool.complete, turn.complete, …
         ▼
-SSE stream → browser
+GET /v1/chat/runs/{run_id}/events?after={seq}
+        │
+        └── SSE replay + live stream → browser
 ```
 
-1. Each user message hits `POST /v1/chat`. The daemon looks up (or creates) a persistent TUI gateway session for that `chat_id` in SQLite.
-2. The message is submitted to the Hermes TUI gateway via `prompt.submit`. The gateway drives the Hermes agent in-process — no PTY, no subprocess scraping.
-3. Events stream back as SSE JSON lines: text tokens, tool start/complete steps, gate interrupts, and a final `turn_complete`.
-4. The standalone web UI renders text with Markdown, shows live tool steps in a collapsible pill, and surfaces decision gates inline.
-5. If a gate interrupt arrives (tool-approval, confirm, sudo, secret), the stream pauses and the UI displays the gate for user resolution. Resolving it via `/v1/gate/resolve` resumes the stream.
-6. Idle sessions are reaped after `session_idle_timeout` seconds. The next message transparently recreates the session.
+1. The browser creates an assistant message, then starts a server-owned run with `POST /v1/chat/runs`.
+2. The daemon rejects duplicate active runs for the same chat and submits the message to the Hermes TUI gateway via `prompt.submit`.
+3. A background collector persists response text, tool steps, and a monotonic stream sequence before publishing each SSE event.
+4. The browser subscribes through `GET /v1/chat/runs/{run_id}/events`. After a refresh it loads the persisted message, finds the active run, and resumes after the last stored sequence without duplicating text.
+5. Gate resolution and cancellation operate on the active server-owned run. The collector remains alive while a gate waits and continues after the choice is submitted.
+6. Completed runs remain replayable for a bounded period, while idle gateway sessions are reaped after `session_idle_timeout` seconds.
 
 ## Repository layout
 
@@ -47,9 +50,10 @@ SSE stream → browser
 ├── plugin.yaml           Hermes plugin manifest
 ├── plugin.py             Hermes plugin entry point (CLI commands + tools)
 ├── requirements.txt
-├── bridge/
+├── hermes_chat/
 │   ├── main.py           FastAPI app: /v1/chat, /v1/gate/resolve, /healthz, /api/ws
 │   ├── gateway_session.py  TUI gateway session manager (JSON-RPC, in-process)
+│   ├── chat_runs.py       Server-owned run lifecycle, persistence, and replay
 │   ├── pty_manager.py    Fallback PTY backend (used if tui_gateway is unavailable)
 │   ├── database.py       SQLite: chat_id → hermes_session_id mapping + users
 │   ├── users.py          User store (bcrypt passwords, JWT auth)
@@ -116,7 +120,7 @@ git clone https://github.com/roormonger/hermes-chat.git
 cd hermes-chat
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn bridge.main:app --host 0.0.0.0 --port 6969
+uvicorn hermes_chat.main:app --host 0.0.0.0 --port 6969
 ```
 
 Verify:
@@ -136,13 +140,25 @@ curl -N -X POST http://localhost:6969/v1/chat \
 
 ## API reference
 
-### `POST /v1/chat`
+### `POST /v1/chat/runs`
 
 ```json
-{"chat_id": "abc123", "message": "what's in this directory?"}
+{"chat_id": "abc123", "message": "what's in this directory?", "assistant_message_id": 42}
 ```
 
-Response: `text/event-stream`, one JSON object per SSE `data:` line.
+Returns the run snapshot, including `run_id`, `status`, `last_seq`, and any `pending_gate`. A second submission while the chat has an active run returns `409 Conflict`.
+
+### `GET /v1/chat/runs/active?chat_id=abc123`
+
+Returns the current resumable run for a chat, if one exists.
+
+### `GET /v1/chat/runs/{run_id}`
+
+Returns the current run snapshot.
+
+### `GET /v1/chat/runs/{run_id}/events?after=0`
+
+Response: `text/event-stream`. Each event includes `run_id` and a monotonic `seq`; pass the last persisted sequence as `after` when reconnecting.
 
 | Event | Shape | Meaning |
 |---|---|---|
@@ -160,7 +176,15 @@ Response: `text/event-stream`, one JSON object per SSE `data:` line.
 {"chat_id": "abc123", "gate_id": "b7e1...", "choice": "Yes", "gate_kind": "approval"}
 ```
 
-Resolves a pending gate and resumes the session. The next `POST /v1/chat` will continue from where the agent left off.
+Resolves a pending gate and resumes the active run's existing event stream.
+
+### `POST /v1/chat/cancel`
+
+```json
+{"chat_id": "abc123"}
+```
+
+Interrupts the active agent turn. The legacy `POST /v1/chat` streaming endpoint remains available for compatibility.
 
 ### `GET /healthz`
 
@@ -188,10 +212,16 @@ hermes hermes-chat configure --debug true --restart
 
 Hermes can also configure the daemon via registered tools:
 
-- `hermes_bridge_configure` — write config settings.
-- `hermes_bridge_status` — check health and config.
-- `hermes_bridge_restart` — restart the daemon.
-- `hermes_bridge_install_dependencies` — install missing Python packages.
+- `hermes_chat_configure` — write config settings.
+- `hermes_chat_status` — check health and config.
+- `hermes_chat_restart` — restart the daemon.
+- `hermes_chat_install_dependencies` — install missing Python packages.
+
+## Upgrade compatibility
+
+Version 0.3 renames the backend Python package from `bridge` to `hermes_chat` and the registered tools from `hermes_bridge_*` to `hermes_chat_*`. Existing configuration, users, chat history, and authentication secrets retain their paths. The session map is migrated from `hermes_bridge.db` to `hermes_chat.db` on first load. Daemon control and log access continue to recognize legacy `hermes-bridge.pid`, `hermes-bridge.start.lock`, and `hermes-bridge.log` files so an upgrade can stop or inspect an already-running older process.
+
+Manual deployments must change the Uvicorn target to `hermes_chat.main:app`. Plugin installations use the updated daemon command automatically.
 
 ## Troubleshooting
 

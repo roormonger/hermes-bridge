@@ -1,5 +1,5 @@
 """
-hermes-bridge FastAPI service.
+hermes-chat FastAPI service.
 
 Runs on the same host as the `hermes` CLI. Exposes:
 
@@ -22,7 +22,7 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile, WebSocket, status
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from .analytics import get_models_analytics as _get_models_analytics_db
 from .chat_history import ChatHistoryStore
+from .chat_runs import ChatRunManager
 from .config import _plugin_dir, auth_secret, load_config
 from .database import ChatSessionStore
 from .users import UserStore
@@ -40,7 +41,7 @@ _log_level = getattr(logging, config.log_level.upper(), logging.INFO)
 if config.debug:
     _log_level = logging.DEBUG
 logging.basicConfig(level=_log_level)
-logger = logging.getLogger("hermes_bridge")
+logger = logging.getLogger("hermes_chat")
 
 # ---------------------------------------------------------------------------
 # Gateway backend selection: prefer tui_gateway (in-process JSON-RPC) over
@@ -59,7 +60,7 @@ else:
     from .pty_manager import SessionManager as _PtySessionManager  # type: ignore
     _BACKEND = "pty"
 
-app = FastAPI(title="hermes-bridge", version="0.1.0")
+app = FastAPI(title="hermes-chat", version="0.1.0")
 
 store = ChatSessionStore()
 history = ChatHistoryStore()
@@ -67,8 +68,10 @@ users = UserStore(secret=auth_secret())
 
 if _BACKEND == "gateway":
     sessions = GatewaySessionManager(session_idle_timeout=config.session_idle_timeout)
+    runs: Optional[ChatRunManager] = ChatRunManager(history, store)
 else:
     sessions = _PtySessionManager(config)  # type: ignore[assignment]
+    runs = None
 
 
 # --------------------------------------------------------------------------- #
@@ -89,16 +92,22 @@ async def root_redirect() -> RedirectResponse:
 async def chat_ui() -> FileResponse:
     index_path = _webui_dir / "index.html"
     if not index_path.exists():
-        logger.error("hermes-bridge web UI not found at %s", index_path)
+        logger.error("hermes-chat web UI not found at %s", index_path)
         raise HTTPException(status_code=404, detail=f"web UI not found at {index_path}")
     return FileResponse(str(index_path))
 
 
+@app.on_event("shutdown")
+async def _on_shutdown() -> None:
+    if runs is not None:
+        await runs.shutdown()
+
+
 @app.on_event("startup")
 async def _on_startup() -> None:
-    logger.info("hermes-bridge listening on %s:%s", config.host, config.port)
-    logger.info("hermes-bridge web UI directory: %s", _webui_dir)
-    logger.info("hermes-bridge backend: %s", _BACKEND)
+    logger.info("hermes-chat listening on %s:%s", config.host, config.port)
+    logger.info("hermes-chat web UI directory: %s", _webui_dir)
+    logger.info("hermes-chat backend: %s", _BACKEND)
 
     if _BACKEND == "gateway":
         loop = asyncio.get_running_loop()
@@ -106,14 +115,20 @@ async def _on_startup() -> None:
             gw = sessions.get_or_create(_MODEL_CATALOG_CHAT_ID, None, loop)
             await loop.run_in_executor(None, gw.model_options)
             await loop.run_in_executor(None, gw.current_model)
-            logger.info("hermes-bridge model catalog pre-warmed")
+            logger.info("hermes-chat model catalog pre-warmed")
         except Exception as exc:
-            logger.warning("hermes-bridge model catalog pre-warm failed: %s", exc)
+            logger.warning("hermes-chat model catalog pre-warm failed: %s", exc)
 
 
 class ChatRequest(BaseModel):
     chat_id: str
     message: str
+
+
+class StartChatRunRequest(BaseModel):
+    chat_id: str
+    message: str
+    assistant_message_id: int
 
 
 class GateResolveRequest(BaseModel):
@@ -249,6 +264,76 @@ async def me(current_user: dict = Depends(get_current_user)) -> dict:
     return {"user_id": current_user["user_id"], "username": current_user["username"]}
 
 
+@app.post("/v1/chat/runs")
+async def start_chat_run(
+    request: StartChatRunRequest, current_user: dict = Depends(get_current_user)
+) -> dict:
+    if _BACKEND != "gateway" or runs is None:
+        raise HTTPException(status_code=501, detail="Durable chat runs require the gateway backend")
+    if not request.chat_id.strip() or not request.message.strip():
+        raise HTTPException(status_code=400, detail="chat_id and message are required")
+    _verify_chat_access(request.chat_id, current_user)
+    loop = asyncio.get_running_loop()
+    hermes_sid = store.get_hermes_session_id(request.chat_id)
+    session = sessions.get_or_create(request.chat_id, hermes_sid, loop)  # type: ignore[attr-defined]
+    try:
+        run = await runs.start(
+            chat_id=request.chat_id,
+            user_id=current_user["user_id"],
+            assistant_message_id=request.assistant_message_id,
+            message=request.message,
+            session=session,
+            submit=session.submit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return run.snapshot()
+
+
+@app.get("/v1/chat/runs/active")
+async def active_chat_run(
+    chat_id: str, current_user: dict = Depends(get_current_user)
+) -> dict:
+    _verify_chat_access(chat_id, current_user)
+    if runs is None:
+        return {"active": False, "protocol_version": 2}
+    run = runs.get_active(chat_id, current_user["user_id"])
+    return {
+        "active": run is not None,
+        "protocol_version": 2,
+        "run": run.snapshot() if run is not None else None,
+    }
+
+
+@app.get("/v1/chat/runs/{run_id}")
+async def chat_run_status(
+    run_id: str, current_user: dict = Depends(get_current_user)
+) -> dict:
+    if runs is None:
+        raise HTTPException(status_code=404, detail="Chat run not found")
+    run = runs.get(run_id, current_user["user_id"])
+    if run is None:
+        raise HTTPException(status_code=404, detail="Chat run not found")
+    return run.snapshot()
+
+
+@app.get("/v1/chat/runs/{run_id}/events")
+async def chat_run_events(
+    run_id: str,
+    after: int = 0,
+    current_user: dict = Depends(get_current_user),
+) -> StreamingResponse:
+    if runs is None or runs.get(run_id, current_user["user_id"]) is None:
+        raise HTTPException(status_code=404, detail="Chat run not found")
+    return StreamingResponse(
+        runs.subscribe(run_id, current_user["user_id"], after),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/v1/chat")
 async def chat(request: ChatRequest, current_user: dict = Depends(get_current_user)) -> StreamingResponse:
     if not request.chat_id.strip():
@@ -382,6 +467,10 @@ async def cancel_chat(request: CancelRequest, current_user: dict = Depends(get_c
         raise HTTPException(status_code=400, detail="Cancel requires gateway backend")
     _verify_chat_access(request.chat_id, current_user)
     loop = asyncio.get_running_loop()
+    if runs is not None:
+        run = await runs.cancel(request.chat_id, current_user["user_id"])
+        if run is not None:
+            return {"status": "interrupted", "run_id": run.run_id}
     gw = sessions.get(request.chat_id)  # type: ignore[attr-defined]
     if gw is None:
         return {"status": "no_session"}
@@ -430,7 +519,7 @@ class ModelSwitchRequest(BaseModel):
 
 
 # Shared scratch session key for catalog RPCs that don't belong to a specific chat.
-_MODEL_CATALOG_CHAT_ID = "__hermes_bridge_models_catalog__"
+_MODEL_CATALOG_CHAT_ID = "__hermes_chat_models_catalog__"
 _DEFAULT_HERMES_DASHBOARD_URL = "http://127.0.0.1:9119"
 
 
@@ -665,7 +754,26 @@ async def resolve_gate(request: GateResolveRequest, current_user: dict = Depends
         raise HTTPException(status_code=404, detail=f"No active session for chat {request.chat_id}")
 
     try:
-        if _BACKEND == "gateway":
+        if _BACKEND == "gateway" and runs is not None:
+            run = runs.get_active(request.chat_id, current_user["user_id"])
+            if run is not None:
+                options = (run.pending_gate or {}).get("options", [])
+                choice = _resolve_gate_choice(options, request.choice) if options else request.choice
+                if choice is None:
+                    raise ValueError(f"Reply with one of {options}")
+                await runs.resolve_gate(
+                    chat_id=request.chat_id,
+                    user_id=current_user["user_id"],
+                    gate_id=request.gate_id,
+                    gate_kind=request.gate_kind,
+                    choice=choice,
+                )
+                return {"status": "resolved", "gate_id": request.gate_id, "run_id": run.run_id}
+            session.set_pending_gate(None)  # type: ignore[attr-defined]
+            await loop.run_in_executor(
+                None, session.respond_gate, request.gate_kind, request.gate_id, request.choice  # type: ignore[attr-defined]
+            )
+        elif _BACKEND == "gateway":
             session.set_pending_gate(None)  # type: ignore[attr-defined]
             await loop.run_in_executor(
                 None, session.respond_gate, request.gate_kind, request.gate_id, request.choice  # type: ignore[attr-defined]

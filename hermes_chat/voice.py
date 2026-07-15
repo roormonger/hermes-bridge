@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("hermes_bridge.voice")
+logger = logging.getLogger("hermes_chat.voice")
 
 # --- Lazy singletons ---------------------------------------------------------
 

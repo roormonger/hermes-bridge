@@ -2,7 +2,7 @@
 
 Mounted by Hermes under ``/api/plugins/hermes-chat/``. All routes here run
 inside the Hermes dashboard server process and manipulate the Hermes Chat daemon via
-``bridge.daemon``.
+``hermes_chat.daemon``.
 """
 
 from __future__ import annotations
@@ -27,10 +27,10 @@ if str(_PLUGIN_ROOT) not in sys.path:
 
 _ERROR_LOG = _PLUGIN_ROOT / "run" / "dashboard-api-error.log"
 
-from bridge.analytics import get_models_analytics as _get_models_analytics
-from bridge.config import auth_secret, load_config, update_config
-from bridge.daemon import LOG_FILE, is_running, logs, restart, start, status, stop
-from bridge.dependencies import check_dependencies, check_optional_dependencies, install_dependencies
+from hermes_chat.analytics import get_models_analytics as _get_models_analytics
+from hermes_chat.config import auth_secret, load_config, update_config
+from hermes_chat.daemon import LOG_FILE, is_running, logs, restart, start, status, stop
+from hermes_chat.dependencies import check_dependencies, check_optional_dependencies, install_dependencies
 
 _DEFAULT_HERMES_DASHBOARD_URL = "http://127.0.0.1:9119"
 
@@ -53,7 +53,7 @@ def _verify_dashboard_url(url: str) -> dict:
     """Verify by reading the Hermes session DB directly.
 
     We avoid making an HTTP request to the dashboard because the dashboard
-    routes require authentication. The bridge and this plugin run on the same
+    routes require authentication. Hermes Chat and this plugin run on the same
     host as Hermes, so we can read the underlying SQLite database directly.
     """
     try:
@@ -232,7 +232,7 @@ class CreateUserRequest(BaseModel):
 
 def _user_store() -> UserStore:
     """Lazy-load UserStore so missing bcrypt doesn't break dashboard import."""
-    from bridge.users import UserStore
+    from hermes_chat.users import UserStore
 
     return UserStore(secret=auth_secret())
 

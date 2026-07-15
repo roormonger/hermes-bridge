@@ -2,7 +2,7 @@
 
 Run directly on a POSIX host (Linux/macOS/WSL), or from the Hermes plugin via:
 
-    hermes hermes-bridge test-gates
+    hermes hermes-chat test-gates
 
 The test cases here cover the prompt shapes Hermes' classic CLI is known to emit.
 Add new cases as you encounter misses in the wild, ideally with the ANSI-stripped
@@ -21,9 +21,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 try:
-    from bridge.pty_manager import GateDetector
+    from hermes_chat.pty_manager import GateDetector
 except ImportError as exc:
-    print(f"ERROR: cannot import hermes-bridge PTY code: {exc}", file=sys.stderr)
+    print(f"ERROR: cannot import hermes-chat PTY code: {exc}", file=sys.stderr)
     print("The gate-detection test tool requires a POSIX host (Linux/macOS/WSL).", file=sys.stderr)
     sys.exit(2)
 

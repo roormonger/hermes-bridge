@@ -24,7 +24,7 @@ export const apiFetch = async (path: string, options: RequestInit = {}) => {
   return res.json();
 };
 
-export type SseEvent =
+type SseEventPayload =
   | { type: "text"; text: string }
   | { type: "gate_interrupt"; gate_id: string; gate_kind?: string; options?: string[]; prompt?: string; context?: Record<string, unknown> }
   | { type: "process_exit" }
@@ -35,6 +35,37 @@ export type SseEvent =
   | { type: "session_title"; title: string; session_id?: string }
   | { type: "session_info"; model?: string; provider?: string; gateway?: string; api_provider?: string; reasoning_effort?: string; service_tier?: string; fast?: boolean; yolo?: boolean; context_window?: number; input_tokens?: number; output_tokens?: number; cache_read_tokens?: number; reasoning_tokens?: number; total_tokens?: number }
   | { type: "error"; message: string };
+
+export type SseEvent = SseEventPayload & { seq?: number; run_id?: string };
+
+export type ChatRun = {
+  run_id: string;
+  chat_id: string;
+  assistant_message_id: number;
+  status: "starting" | "running" | "waiting_for_gate" | "complete" | "error" | "cancelled";
+  last_seq: number;
+  pending_gate?: Extract<SseEventPayload, { type: "gate_interrupt" }> | null;
+};
+
+export const startChatRun = (chatId: string, message: string, assistantMessageId: string) =>
+  apiFetch("/v1/chat/runs", {
+    method: "POST",
+    body: JSON.stringify({
+      chat_id: chatId,
+      message,
+      assistant_message_id: Number(assistantMessageId),
+    }),
+  }) as Promise<ChatRun>;
+
+export const getActiveChatRun = (chatId: string) =>
+  apiFetch(`/v1/chat/runs/active?chat_id=${encodeURIComponent(chatId)}`) as Promise<{
+    active: boolean;
+    protocol_version: number;
+    run?: ChatRun | null;
+  }>;
+
+export const getChatRun = (runId: string) =>
+  apiFetch(`/v1/chat/runs/${encodeURIComponent(runId)}`) as Promise<ChatRun>;
 
 export const getModels = () => apiFetch("/v1/models");
 
@@ -151,6 +182,7 @@ export const streamEvents = async (
   body: object,
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,
+  method: "GET" | "POST" = "POST",
 ) => {
   let attempt = 0;
   while (true) {
@@ -159,12 +191,12 @@ export const streamEvents = async (
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
       const res = await fetch(url, {
-        method: "POST",
+        method,
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(body),
+        ...(method === "POST" ? { body: JSON.stringify(body) } : {}),
         signal,
       });
       if (!res.ok) {
@@ -216,3 +248,16 @@ export const streamEvents = async (
     }
   }
 };
+
+export const streamChatRun = (
+  runId: string,
+  after: number,
+  onEvent: (event: SseEvent) => void,
+  signal?: AbortSignal,
+) => streamEvents(
+  `/v1/chat/runs/${encodeURIComponent(runId)}/events?after=${Math.max(0, after)}`,
+  {},
+  onEvent,
+  signal,
+  "GET",
+);

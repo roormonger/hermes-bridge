@@ -11,7 +11,7 @@ import importlib.util
 from pathlib import Path
 
 _plugin_path = Path(__file__).resolve().parent / "plugin.py"
-_spec = importlib.util.spec_from_file_location("hermes_bridge_plugin", _plugin_path)
+_spec = importlib.util.spec_from_file_location("hermes_chat_plugin", _plugin_path)
 _plugin_module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_plugin_module)
 

@@ -18,9 +18,9 @@ Our app is a React/Vite plugin served from `webui/dist/`. Key difference: they o
 their full server; we are a **Hermes plugin** mounted at `/api/plugins/hermes-chat/`.
 
 Their backend files map roughly to ours:
-- `api/routes.py` → our `bridge/main.py`
-- `api/config.py` → our `bridge/config.py`
-- `api/streaming.py` → our SSE logic in `bridge/main.py`
+- `api/routes.py` → our `hermes_chat/main.py`
+- `api/config.py` → our `hermes_chat/config.py`
+- `api/streaming.py` → our SSE logic in `hermes_chat/main.py`
 - `static/*.js` → our `webui/src/`
 
 ---
@@ -175,8 +175,8 @@ Their voice behavior:
 | Theme hook | `webui/src/hooks/useTheme.ts` |
 | TTS voice hook | `webui/src/hooks/useTTSVoice.ts` |
 | Voice capabilities | `webui/src/hooks/useVoiceCapabilities.ts` |
-| Bridge main API | `bridge/main.py` |
-| Config | `bridge/config.py` |
+| Hermes Chat main API | `hermes_chat/main.py` |
+| Config | `hermes_chat/config.py` |
 | Dashboard UI | `dashboard/dist/index.js` |
 | Dashboard API | `dashboard/plugin_api.py` |
 

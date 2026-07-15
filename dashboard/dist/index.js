@@ -58,7 +58,7 @@
 
   const { useRef } = hooks;
 
-  function BridgeDashboard() {
+  function HermesChatDashboard() {
     const [status, setStatus] = useState(null);
     const [logs, setLogs] = useState("");
     const [logsPaused, setLogsPaused] = useState(false);
@@ -377,7 +377,7 @@
         h(CardHeader, { className: "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between" },
           h("div", null,
             h(CardTitle, null, "Daemon Status"),
-            h("p", { className: "text-sm text-muted-foreground" }, "Current bridge process state and configuration.")
+            h("p", { className: "text-sm text-muted-foreground" }, "Current Hermes Chat process state and configuration.")
           ),
           h("div", { className: "flex flex-wrap gap-2" },
             h(Button, { onClick: onStart, disabled: loading || status?.running, size: "sm" }, "Start"),
@@ -609,5 +609,5 @@
     );
   }
 
-  window.__HERMES_PLUGINS__.register("hermes-chat", BridgeDashboard);
+  window.__HERMES_PLUGINS__.register("hermes-chat", HermesChatDashboard);
 })();
