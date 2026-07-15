@@ -44,12 +44,13 @@ const MarkdownImage: FC<React.ImgHTMLAttributes<HTMLImageElement>> = ({
   alt,
   ...props
 }) => {
-  if (!src) return null;
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setFailed(false);
   }, [src]);
+
+  if (!src) return null;
 
   if (failed) {
     return (

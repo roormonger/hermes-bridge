@@ -189,7 +189,6 @@ const FileDownloadLinks: FC<{ text: string }> = ({ text }) => {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const paths = extractFilePaths(text);
-  if (paths.length === 0) return null;
 
   const download = useCallback(async (path: string) => {
     setDownloading(path);
@@ -214,6 +213,8 @@ const FileDownloadLinks: FC<{ text: string }> = ({ text }) => {
       setDownloading(null);
     }
   }, []);
+
+  if (paths.length === 0) return null;
 
   const images = paths.filter(isImagePath);
   const others = paths.filter((p) => !isImagePath(p));

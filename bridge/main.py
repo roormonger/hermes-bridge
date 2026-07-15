@@ -14,6 +14,7 @@ See README.md for the full protocol description.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import logging
 import os
@@ -829,6 +830,20 @@ class SpeakRequest(BaseModel):
     text: str
     lang: str | None = None
     voice: str | None = None
+
+
+@app.get("/api/plugins/hermes-chat/voice-config")
+async def get_voice_config(current_user: dict = Depends(get_current_user)) -> dict:
+    cfg = load_config()
+    return {
+        "voice_enabled": cfg.voice_enabled,
+        "default_tts_voice": cfg.default_tts_voice,
+        "tts_available": importlib.util.find_spec("edge_tts") is not None,
+        "stt_available": (
+            importlib.util.find_spec("faster_whisper") is not None
+            and importlib.util.find_spec("imageio_ffmpeg") is not None
+        ),
+    }
 
 
 @app.post("/v1/audio/transcribe")
