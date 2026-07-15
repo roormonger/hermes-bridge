@@ -52,6 +52,8 @@ type Gate = {
 };
 
 type ToolStep = {
+  id?: string;
+  sourceId?: string;
   name: string;
   context?: string;
   summary?: string;
@@ -159,9 +161,9 @@ const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
   role: msg.role,
   content: [
     ...(msg.images ?? []).map((src) => ({ type: "image" as const, image: src })),
-    ...(msg.toolSteps ?? []).map((step) => ({
+    ...(msg.toolSteps ?? []).map((step, index) => ({
       type: "tool-call" as const,
-      toolCallId: step.name,
+      toolCallId: `${msg.id}-tool-${index}-${step.id || step.name}`,
       toolName: step.name,
       argsText: step.context ?? "",
       status:
@@ -1202,9 +1204,11 @@ function ChatApp() {
           });
         }
       } else if (event.type === "tool_start") {
+        const sourceId = event.tool_id || event.name;
+        const toolId = `${assistantId}-tool-${assistantToolStepsRef.current.length}-${sourceId}`;
         assistantToolStepsRef.current = [
           ...(assistantToolStepsRef.current ?? []),
-          { name: event.name, context: event.context, status: "running" as const },
+          { id: toolId, sourceId, name: event.name, context: event.context, status: "running" as const },
         ];
         setMessages((prev) =>
           prev.map((m) =>
@@ -1217,7 +1221,13 @@ function ChatApp() {
         // eslint-disable-next-line no-console
         console.log("[tool_complete]", event.name, "result", event.result, "artifact", event.artifact);
         const steps = [...(assistantToolStepsRef.current ?? [])];
-        const idx = steps.map((s) => s.name).lastIndexOf(event.name);
+        const sourceId = event.tool_id || event.name;
+        const idxBySource = steps.findLastIndex(
+          (step) => step.status === "running" && step.sourceId === sourceId,
+        );
+        const idx = idxBySource !== -1
+          ? idxBySource
+          : steps.findLastIndex((step) => step.status === "running" && step.name === event.name);
         if (idx !== -1) {
           steps[idx] = {
             ...steps[idx],
