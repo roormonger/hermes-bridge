@@ -302,8 +302,6 @@ class GatewaySession:
         self._transport = QueueTransport(self.queue, loop)
         self._lock = threading.Lock()
         self._pending_gate: Optional[dict] = None  # last gate_interrupt event
-        self._turn_active = False
-        self.stream_lock = asyncio.Lock()
         self.last_active = time.monotonic()
         self._model_options_cache = _TimedCache(30.0)
         self._current_model_cache = _TimedCache(5.0)
@@ -360,7 +358,6 @@ class GatewaySession:
     def submit(self, text: str) -> None:
         """Send a user message to the gateway (non-blocking, events arrive on queue)."""
         self.last_active = time.monotonic()
-        self._turn_active = True
         sid = self.ensure_session()
         result = self._call("prompt.submit", {"session_id": sid, "text": text})
         # 4001 = session not found (e.g. bridge restarted, in-memory state wiped)
@@ -373,12 +370,6 @@ class GatewaySession:
                 self.hermes_session_id = None
             sid = self.ensure_session()
             self._call("prompt.submit", {"session_id": sid, "text": text})
-
-    def is_turn_active(self) -> bool:
-        return self._turn_active
-
-    def mark_turn_finished(self) -> None:
-        self._turn_active = False
 
     # ------------------------------------------------------------------
     def attach_image_bytes(self, content_base64: str, filename: str = "") -> dict:
@@ -544,7 +535,6 @@ class GatewaySession:
     def respond_gate(self, gate_kind: str, gate_id: str, value: str) -> None:
         """Resolve an approval / clarify / sudo / secret gate."""
         self.last_active = time.monotonic()
-        self._turn_active = True
         sid = self.hermes_session_id or ""
         params: dict = {"session_id": sid, "request_id": gate_id}
 

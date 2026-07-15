@@ -68,9 +68,6 @@ export const undoLastTurn = (chatId: string) =>
     body: JSON.stringify({ chat_id: chatId }),
   });
 
-export const getChatStatus = (chatId: string) =>
-  apiFetch(`/v1/chat/status?chat_id=${encodeURIComponent(chatId)}`);
-
 export const getChatUsage = (chatId: string) =>
   apiFetch(`/api/chats/${chatId}/usage`);
 
