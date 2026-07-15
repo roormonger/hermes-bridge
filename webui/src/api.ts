@@ -142,6 +142,13 @@ export const speakText = async (text: string, lang?: string, voice?: string): Pr
 const _SSE_MAX_RETRIES = 5;
 const _SSE_BASE_DELAY_MS = 500;
 
+class SseHttpError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = "SseHttpError";
+  }
+}
+
 export const streamEvents = async (
   url: string,
   body: object,
@@ -163,7 +170,14 @@ export const streamEvents = async (
         body: JSON.stringify(body),
         signal,
       });
-      if (!res.ok) throw new Error(res.statusText);
+      if (!res.ok) {
+        const body = await res.text();
+        let detail = body;
+        try {
+          detail = JSON.parse(body)?.detail || body;
+        } catch {}
+        throw new SseHttpError(res.status, detail || `${res.status} ${res.statusText}`);
+      }
       reader = res.body?.getReader();
       if (!reader) throw new Error("no response body");
       const decoder = new TextDecoder();
@@ -191,6 +205,7 @@ export const streamEvents = async (
       return; // clean finish
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
+      if (e instanceof SseHttpError) throw e;
       attempt++;
       if (attempt > _SSE_MAX_RETRIES) throw e;
       const delay = _SSE_BASE_DELAY_MS * Math.pow(2, attempt - 1);
