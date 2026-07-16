@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   AssistantRuntimeProvider,
+  useAui,
   useExternalStoreRuntime,
   CompositeAttachmentAdapter,
   SimpleImageAttachmentAdapter,
   SimpleTextAttachmentAdapter,
+  Suggestions,
   type AppendMessage,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
@@ -216,6 +218,30 @@ const convertMessage = (msg: ThreadMessageLike): ThreadMessageLike => {
   }
   return msg;
 };
+
+/** Empty-thread starter chips shown by ThreadPrimitive.Suggestions. */
+const STARTER_SUGGESTIONS = [
+  {
+    title: "List files",
+    label: "in the current directory",
+    prompt: "What files are in the current directory?",
+  },
+  {
+    title: "Running processes",
+    label: "show what's active",
+    prompt: "Show me running processes",
+  },
+  {
+    title: "What can Hermes do?",
+    label: "quick overview",
+    prompt: "Summarize what Hermes can do",
+  },
+  {
+    title: "System info",
+    label: "OS, CPU, memory",
+    prompt: "Give me a brief summary of this machine (OS, CPU, memory, disk).",
+  },
+] as const;
 
 const getAppendText = (msg: AppendMessage): string => {
   const parts = typeof msg.content === "string" ? [{ type: "text", text: msg.content }] : msg.content;
@@ -649,6 +675,7 @@ function ChatSidebar({
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
   const filteredChats = search.trim()
@@ -731,7 +758,7 @@ function ChatSidebar({
           variant="outline"
           className={cn("h-10", collapsed ? "w-10 px-0 justify-center" : "w-full justify-start gap-2")}
           onClick={onNew}
-          title="New Chat"
+          title="New Chat (Ctrl/Cmd+N)"
         >
           <Plus className="size-4" />
           {!collapsed && "New Chat"}
@@ -770,7 +797,10 @@ function ChatSidebar({
                         ? "bg-accent text-accent-foreground"
                         : "hover:bg-muted"
                     )}
-                    onClick={() => onSelect(chat.chat_id)}
+                    onClick={() => {
+                      setConfirmDeleteId(null);
+                      onSelect(chat.chat_id);
+                    }}
                   >
                     <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
                     {!collapsed && (
@@ -814,6 +844,40 @@ function ChatSidebar({
                           <X className="size-3" />
                         </Button>
                       </div>
+                    ) : confirmDeleteId === chat.chat_id ? (
+                      <div
+                        className="flex flex-1 items-center gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="flex-1 truncate text-xs text-destructive font-medium">
+                          Delete?
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-destructive hover:text-destructive"
+                          title="Confirm delete"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDeleteId(null);
+                            onDelete(chat.chat_id);
+                          }}
+                        >
+                          <Check className="size-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          title="Cancel"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDeleteId(null);
+                          }}
+                        >
+                          <X className="size-3" />
+                        </Button>
+                      </div>
                     ) : (
                       <>
                         <span className="flex-1 truncate">{chat.title}</span>
@@ -830,6 +894,7 @@ function ChatSidebar({
                             title={chat.pinned ? "Unpin" : "Pin"}
                             onClick={(e) => {
                               e.stopPropagation();
+                              setConfirmDeleteId(null);
                               onPin(chat.chat_id, !chat.pinned);
                             }}
                           >
@@ -841,6 +906,7 @@ function ChatSidebar({
                             className="size-7"
                             onClick={(e) => {
                               e.stopPropagation();
+                              setConfirmDeleteId(null);
                               setEditingId(chat.chat_id);
                               setEditTitle(chat.title);
                             }}
@@ -851,9 +917,11 @@ function ChatSidebar({
                             variant="ghost"
                             size="icon"
                             className="size-7 text-destructive hover:text-destructive"
+                            title="Delete"
                             onClick={(e) => {
                               e.stopPropagation();
-                              onDelete(chat.chat_id);
+                              setEditingId(null);
+                              setConfirmDeleteId(chat.chat_id);
                             }}
                           >
                             <Trash2 className="size-3" />
@@ -1133,10 +1201,24 @@ function ChatApp() {
       });
       setChats((prev) => [data, ...prev]);
       setCurrentChatId(data.chat_id);
+      setMobileSidebarOpen(false);
     } catch (e) {
       setError((e as Error).message);
     }
   };
+  const createChatRef = useRef(createChat);
+  createChatRef.current = createChat;
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      if (e.key.toLowerCase() !== "n") return;
+      e.preventDefault();
+      void createChatRef.current();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const renameChat = async (chatId: string, title: string) => {
     try {
@@ -1843,13 +1925,18 @@ function ChatApp() {
     },
   });
 
+  // Static welcome chips for ThreadPrimitive.Suggestions (suggestions scope, not thread.suggestions).
+  const aui = useAui({
+    suggestions: Suggestions([...STARTER_SUGGESTIONS]),
+  });
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background">
       <ChatSidebar
         chats={chats}
         currentChatId={currentChatId}
         onSelect={(id) => { setCurrentChatId(id); setMobileSidebarOpen(false); }}
-        onNew={() => { createChat(); setMobileSidebarOpen(false); }}
+        onNew={() => { void createChat(); }}
         onRename={renameChat}
         onDelete={deleteChat}
         onPin={pinChat}
@@ -1947,7 +2034,7 @@ function ChatApp() {
           </div>
         )}
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <AssistantRuntimeProvider runtime={runtime}>
+          <AssistantRuntimeProvider aui={aui} runtime={runtime}>
             <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} voiceCaps={voiceCaps} ttsVoice={ttsVoice} gatePending={Boolean(pendingGate)} onGateChoice={handleGateChoice} />
           </AssistantRuntimeProvider>
         </div>
