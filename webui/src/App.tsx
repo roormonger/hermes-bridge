@@ -350,11 +350,13 @@ function ModelPicker({
   open,
   onOpenChange,
   onModelChange,
+  freeModelsOnly = false,
 }: {
   chatId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onModelChange?: (model: string, provider: string, isProfile: boolean) => void;
+  freeModelsOnly?: boolean;
 }) {
   const [catalog, setCatalog] = useState<any>(null);
   const [analytics, setAnalytics] = useState<any>(null);
@@ -501,7 +503,9 @@ function ModelPicker({
           </DialogHeader>
           <p className="text-sm text-muted-foreground">Current: {currentLabel}</p>
           <p className="text-xs text-muted-foreground/70">
-            Hermes Profiles are shown at the top. Expand any provider to see its models.
+            {freeModelsOnly
+              ? "This account is limited to free models. Hermes Profiles appear only when their name ends with :free."
+              : "Hermes Profiles are shown at the top. Expand any provider to see its models."}
           </p>
           <Input
             placeholder="Search models…"
@@ -2042,6 +2046,7 @@ function ChatApp() {
           chatId={currentChatId}
           open={modelPickerOpen}
           onOpenChange={setModelPickerOpen}
+          freeModelsOnly={!!user?.free_models_only}
           onModelChange={(model, provider, isProfile) => {
             if (isProfile) {
               setProfileModels((prev) => new Set(prev).add(model));

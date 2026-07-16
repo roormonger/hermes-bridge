@@ -19,6 +19,12 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7
 
 
+def _row_to_user(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["free_models_only"] = bool(data.get("free_models_only") or 0)
+    return data
+
+
 class UserStore:
     """SQLite-backed user accounts and authentication tokens."""
 
@@ -45,15 +51,27 @@ class UserStore:
                 user_id TEXT PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
-                created_at REAL NOT NULL
+                created_at REAL NOT NULL,
+                free_models_only INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
             """
         )
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "free_models_only" not in cols:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN free_models_only INTEGER NOT NULL DEFAULT 0"
+            )
         conn.commit()
 
-    def create_user(self, username: str, password: str) -> dict:
+    def create_user(
+        self,
+        username: str,
+        password: str,
+        *,
+        free_models_only: bool = False,
+    ) -> dict:
         """Create a new user. Raises ValueError if the username is taken."""
         username = username.strip().lower()
         if not username or not password:
@@ -67,20 +85,25 @@ class UserStore:
         conn = self._conn()
         try:
             conn.execute(
-                "INSERT INTO users (user_id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
-                (user_id, username, password_hash, now),
+                "INSERT INTO users (user_id, username, password_hash, created_at, free_models_only) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (user_id, username, password_hash, now, 1 if free_models_only else 0),
             )
             conn.commit()
         except sqlite3.IntegrityError as exc:
             raise ValueError(f"username '{username}' is already taken") from exc
-        return {"user_id": user_id, "username": username}
+        return {
+            "user_id": user_id,
+            "username": username,
+            "free_models_only": free_models_only,
+        }
 
     def verify_user(self, username: str, password: str) -> Optional[dict]:
         """Verify credentials and return the user record, or None."""
         username = username.strip().lower()
         conn = self._conn()
         row = conn.execute(
-            "SELECT user_id, username, password_hash FROM users WHERE username = ?",
+            "SELECT user_id, username, password_hash, free_models_only FROM users WHERE username = ?",
             (username,),
         ).fetchone()
         if row is None:
@@ -88,23 +111,39 @@ class UserStore:
         stored = row["password_hash"].encode("utf-8")
         if not bcrypt.checkpw(password.encode("utf-8"), stored):
             return None
-        return {"user_id": row["user_id"], "username": row["username"]}
+        return {
+            "user_id": row["user_id"],
+            "username": row["username"],
+            "free_models_only": bool(row["free_models_only"] or 0),
+        }
 
     def get_by_id(self, user_id: str) -> Optional[dict]:
         conn = self._conn()
         row = conn.execute(
-            "SELECT user_id, username, created_at FROM users WHERE user_id = ?",
+            "SELECT user_id, username, created_at, free_models_only FROM users WHERE user_id = ?",
             (user_id,),
         ).fetchone()
-        return dict(row) if row else None
+        return _row_to_user(row) if row else None
 
     def list_users(self, limit: int = 100) -> list[dict]:
         conn = self._conn()
         rows = conn.execute(
-            "SELECT user_id, username, created_at FROM users ORDER BY username ASC LIMIT ?",
+            "SELECT user_id, username, created_at, free_models_only FROM users "
+            "ORDER BY username ASC LIMIT ?",
             (limit,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [_row_to_user(row) for row in rows]
+
+    def set_free_models_only(self, user_id: str, free_models_only: bool) -> Optional[dict]:
+        conn = self._conn()
+        cur = conn.execute(
+            "UPDATE users SET free_models_only = ? WHERE user_id = ?",
+            (1 if free_models_only else 0, user_id),
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            return None
+        return self.get_by_id(user_id)
 
     def delete_user(self, user_id: str) -> bool:
         conn = self._conn()

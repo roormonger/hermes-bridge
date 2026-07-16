@@ -9,6 +9,7 @@ import { Loader2 } from "lucide-react";
 type AuthUser = {
   user_id: string;
   username: string;
+  free_models_only?: boolean;
 };
 
 type AuthContextValue = {
@@ -39,7 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     apiFetch("/api/auth/me")
-      .then((data) => setUser({ user_id: data.user_id, username: data.username }))
+      .then((data) =>
+        setUser({
+          user_id: data.user_id,
+          username: data.username,
+          free_models_only: !!data.free_models_only,
+        })
+      )
       .catch(() => {
         setToken("");
       })
@@ -53,7 +60,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ username, password }),
     });
     setToken(data.token);
-    setUser({ user_id: data.user_id, username: data.username });
+    setUser({
+      user_id: data.user_id,
+      username: data.username,
+      free_models_only: !!data.free_models_only,
+    });
   };
 
   const logout = () => {

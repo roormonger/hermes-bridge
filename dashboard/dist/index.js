@@ -65,6 +65,7 @@
     const [users, setUsers] = useState([]);
     const [newUsername, setNewUsername] = useState("");
     const [newPassword, setNewPassword] = useState("");
+    const [newFreeOnly, setNewFreeOnly] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null);
@@ -276,13 +277,27 @@
       await act(
         fetchJSON("/users", {
           method: "POST",
-          body: JSON.stringify({ username: newUsername, password: newPassword }),
+          body: JSON.stringify({
+            username: newUsername,
+            password: newPassword,
+            free_models_only: newFreeOnly,
+          }),
         }),
         loadUsers
       );
       setNewUsername("");
       setNewPassword("");
+      setNewFreeOnly(false);
     };
+
+    const onToggleFreeOnly = (userId, freeModelsOnly) =>
+      act(
+        fetchJSON("/users/" + userId, {
+          method: "PATCH",
+          body: JSON.stringify({ free_models_only: freeModelsOnly }),
+        }),
+        loadUsers
+      );
 
     const onVerifyDashboardUrl = async () => {
       setDashboardUrlLoading(true);
@@ -540,38 +555,66 @@
               h("p", { className: "text-sm text-muted-foreground" }, "Add or remove users for the standalone chat UI. New users can log in immediately — no restart needed.")
             ),
             h(CardContent, { className: "space-y-4" },
-              h("form", { onSubmit: onCreateUser, className: "flex flex-col sm:flex-row gap-2" },
-                h("input", {
-                  type: "text",
-                  placeholder: "Username",
-                  value: newUsername,
-                  onChange: (e) => setNewUsername(e.target.value),
-                  required: true,
-                  className: "flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                }),
-                h("input", {
-                  type: "password",
-                  placeholder: "Password",
-                  value: newPassword,
-                  onChange: (e) => setNewPassword(e.target.value),
-                  required: true,
-                  className: "flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                }),
-                h(Button, { type: "submit", disabled: loading }, "Add User")
+              h("form", { onSubmit: onCreateUser, className: "flex flex-col gap-2" },
+                h("div", { className: "flex flex-col sm:flex-row gap-2" },
+                  h("input", {
+                    type: "text",
+                    placeholder: "Username",
+                    value: newUsername,
+                    onChange: (e) => setNewUsername(e.target.value),
+                    required: true,
+                    className: "flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  }),
+                  h("input", {
+                    type: "password",
+                    placeholder: "Password",
+                    value: newPassword,
+                    onChange: (e) => setNewPassword(e.target.value),
+                    required: true,
+                    className: "flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  }),
+                  h(Button, { type: "submit", disabled: loading }, "Add User")
+                ),
+                h("label", { className: "flex items-center gap-2 text-sm text-muted-foreground cursor-pointer" },
+                  h("input", {
+                    type: "checkbox",
+                    checked: newFreeOnly,
+                    onChange: (e) => setNewFreeOnly(e.target.checked),
+                    className: "h-4 w-4 cursor-pointer"
+                  }),
+                  "Free models only (pricing.free or names ending in :free; profiles must end with :free)"
+                )
               ),
               h("div", { className: "space-y-2" },
                 users.length === 0 && h("p", { className: "text-sm text-muted-foreground" }, "No users yet."),
                 users.map((u) => h("div", {
                   key: u.user_id,
-                  className: "flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                  className: "flex flex-col gap-2 rounded-md border px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
                 },
-                  h("span", null, u.username),
-                  h(Button, {
-                    variant: "destructive",
-                    size: "sm",
-                    onClick: () => onDeleteUser(u.user_id),
-                    disabled: loading
-                  }, "Delete")
+                  h("div", { className: "flex flex-wrap items-center gap-2 min-w-0" },
+                    h("span", { className: "font-medium" }, u.username),
+                    u.free_models_only && h("span", {
+                      className: "rounded-sm bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+                    }, "Free only")
+                  ),
+                  h("div", { className: "flex items-center gap-2 shrink-0" },
+                    h("label", { className: "flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer" },
+                      h("input", {
+                        type: "checkbox",
+                        checked: !!u.free_models_only,
+                        disabled: loading,
+                        onChange: (e) => onToggleFreeOnly(u.user_id, e.target.checked),
+                        className: "h-3.5 w-3.5 cursor-pointer"
+                      }),
+                      "Free only"
+                    ),
+                    h(Button, {
+                      variant: "destructive",
+                      size: "sm",
+                      onClick: () => onDeleteUser(u.user_id),
+                      disabled: loading
+                    }, "Delete")
+                  )
                 ))
               )
             )

@@ -228,6 +228,11 @@ async def post_install_deps() -> dict:
 class CreateUserRequest(BaseModel):
     username: str
     password: str
+    free_models_only: bool = False
+
+
+class UpdateUserRequest(BaseModel):
+    free_models_only: bool
 
 
 def _user_store() -> UserStore:
@@ -250,10 +255,28 @@ async def get_users() -> dict:
 async def post_user(body: CreateUserRequest) -> dict:
     try:
         store = _user_store()
-        user = store.create_user(body.username, body.password)
+        user = store.create_user(
+            body.username,
+            body.password,
+            free_models_only=body.free_models_only,
+        )
         return {"status": "created", "user": user}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+@router.patch("/users/{user_id}")
+async def patch_user(user_id: str, body: UpdateUserRequest) -> dict:
+    try:
+        store = _user_store()
+        user = store.set_free_models_only(user_id, body.free_models_only)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"status": "updated", "user": user}
+    except HTTPException:
+        raise
     except Exception as exc:
         _handle_exc(exc)
 

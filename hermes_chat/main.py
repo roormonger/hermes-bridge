@@ -35,6 +35,11 @@ from .chat_runs import ChatRunManager
 from .config import _plugin_dir, auth_secret, load_config
 from .database import ChatSessionStore
 from .users import UserStore
+from .model_access import (
+    filter_analytics_models_for_free_user,
+    filter_model_options_for_free_user,
+    model_allowed_for_free_user,
+)
 
 config = load_config()
 _log_level = getattr(logging, config.log_level.upper(), logging.INFO)
@@ -188,6 +193,11 @@ class AuthResponse(BaseModel):
     user_id: str
     username: str
     token: str
+    free_models_only: bool = False
+
+
+def _user_is_free_only(user: dict) -> bool:
+    return bool(user.get("free_models_only"))
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:
@@ -261,12 +271,21 @@ async def login(request: LoginRequest) -> AuthResponse:
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid username or password")
     token = users.create_token(user["user_id"])
-    return AuthResponse(user_id=user["user_id"], username=user["username"], token=token)
+    return AuthResponse(
+        user_id=user["user_id"],
+        username=user["username"],
+        token=token,
+        free_models_only=bool(user.get("free_models_only")),
+    )
 
 
 @app.get("/api/auth/me")
 async def me(current_user: dict = Depends(get_current_user)) -> dict:
-    return {"user_id": current_user["user_id"], "username": current_user["username"]}
+    return {
+        "user_id": current_user["user_id"],
+        "username": current_user["username"],
+        "free_models_only": bool(current_user.get("free_models_only")),
+    }
 
 
 @app.post("/v1/chat/runs")
@@ -558,6 +577,8 @@ async def list_models(current_user: dict = Depends(get_current_user)) -> dict:
         result = await loop.run_in_executor(None, gw.model_options)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if _user_is_free_only(current_user):
+        return filter_model_options_for_free_user(result)
     return result
 
 
@@ -570,23 +591,25 @@ async def list_analytics_models(current_user: dict = Depends(get_current_user)) 
     the dashboard HTTP endpoint only when hermes_state is not available.
     """
     try:
-        return _get_models_analytics_db(days=30)
+        data = _get_models_analytics_db(days=30)
     except RuntimeError as exc:
         # hermes_state unavailable; fall back to dashboard HTTP proxy.
         logging.getLogger(__name__).warning("Direct analytics DB read failed: %s", exc)
-    url = _hermes_dashboard_url().rstrip("/") + "/api/analytics/models"
-    try:
-        req = urllib.request.Request(url, headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data
-    except urllib.error.HTTPError as exc:
-        raise HTTPException(
-            status_code=exc.code,
-            detail=exc.read().decode("utf-8", errors="ignore"),
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        url = _hermes_dashboard_url().rstrip("/") + "/api/analytics/models"
+        try:
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as http_exc:
+            raise HTTPException(
+                status_code=http_exc.code,
+                detail=http_exc.read().decode("utf-8", errors="ignore"),
+            ) from http_exc
+        except Exception as proxy_exc:
+            raise HTTPException(status_code=500, detail=str(proxy_exc)) from proxy_exc
+    if _user_is_free_only(current_user):
+        return filter_analytics_models_for_free_user(data)
+    return data
 
 
 @app.get("/v1/model")
@@ -618,6 +641,20 @@ async def set_model(request: ModelSwitchRequest, current_user: dict = Depends(ge
         raise HTTPException(status_code=400, detail="Model switch requires gateway backend")
     _verify_chat_access(request.chat_id, current_user)
     loop = asyncio.get_running_loop()
+    if _user_is_free_only(current_user):
+        catalog_gw = sessions.get_or_create(_MODEL_CATALOG_CHAT_ID, None, loop)  # type: ignore[attr-defined]
+        try:
+            catalog = await loop.run_in_executor(None, catalog_gw.model_options)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        if not model_allowed_for_free_user(request.model, request.provider or "", catalog):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "This account is limited to free models "
+                    "(and profiles whose names end with :free)."
+                ),
+            )
     hermes_sid = store.get_hermes_session_id(request.chat_id)
     gw = sessions.get_or_create(request.chat_id, hermes_sid, loop)  # type: ignore[attr-defined]
     value = request.model
