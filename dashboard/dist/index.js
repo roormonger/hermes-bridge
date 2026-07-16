@@ -340,240 +340,246 @@
     const onDeleteUser = (userId) =>
       act(fetchJSON("/users/" + userId, { method: "DELETE" }), loadUsers);
 
-    return h("div", { className: "space-y-4 p-4 max-w-5xl mx-auto" },
-      h("div", { className: "flex items-center justify-between" },
-        h("div", null,
-          h("h2", { className: "text-2xl font-bold tracking-tight" }, "Hermes Chat"),
-          h("p", { className: "text-muted-foreground" }, "Control the Hermes Chat daemon.")
-        ),
-        h(StatusPill, { running: status?.running || false, healthy: status?.healthy || false })
-      ),
-      missingDeps.length > 0 && h("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700 p-3 text-sm flex items-start justify-between gap-3" },
-        h("div", null,
-          h("span", { className: "font-semibold text-yellow-800 dark:text-yellow-200" }, "Missing dependencies: "),
-          h("span", { className: "text-yellow-700 dark:text-yellow-300" }, missingDeps.join(", ")),
-          h("p", { className: "text-yellow-600 dark:text-yellow-400 text-xs mt-1" }, "The daemon cannot start until these are installed.")
-        ),
-        h(Button, { onClick: onInstallDeps, disabled: loading, size: "sm", variant: "outline" }, loading ? "Installing..." : "Install Now")
-      ),
-      missingOptionalDeps.length > 0 && missingDeps.length === 0 && h("div", { className: "rounded-md border border-blue-400 bg-blue-50 dark:bg-blue-950 dark:border-blue-700 p-3 text-sm flex items-start justify-between gap-3" },
-        h("div", null,
-          h("span", { className: "font-semibold text-blue-800 dark:text-blue-200" }, "Voice support not installed: "),
-          h("span", { className: "text-blue-700 dark:text-blue-300" }, missingOptionalDeps.map(d => d.requirement).join(", ")),
-          h("p", { className: "text-blue-600 dark:text-blue-400 text-xs mt-1" }, missingOptionalDeps.map(d => d.feature).join(", ") + ". Install to enable voice input and output.")
-        ),
-        h(Button, { onClick: onInstallDeps, disabled: loading, size: "sm", variant: "outline" }, loading ? "Installing..." : "Install Voice")
-      ),
-      notice && h("div", { className: "rounded-md border border-green-400 bg-green-50 dark:bg-green-950 dark:border-green-700 p-3 text-sm flex items-center justify-between gap-3" },
-        h("span", { className: "text-green-800 dark:text-green-200" }, "✓ " + notice),
-        h("button", { onClick: () => setNotice(null), className: "text-green-600 dark:text-green-400 hover:opacity-70 text-xs" }, "✕")
-      ),
-      pendingRestart && h("div", { className: "rounded-md border border-orange-400 bg-orange-50 dark:bg-orange-950 dark:border-orange-700 p-3 text-sm flex items-center justify-between gap-3" },
-        h("span", { className: "text-orange-800 dark:text-orange-200" }, "⚠ Restart required for network settings to take effect."),
-        h(Button, { onClick: onRestartAfterSettings, disabled: loading, size: "sm" }, loading ? "Restarting..." : "Restart Now")
-      ),
-      error && h("div", { className: "rounded-md bg-destructive/15 p-3 text-destructive text-sm" }, error),
-      h(Card, null,
-        h(CardHeader, { className: "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between" },
+    return h("div", { className: "flex h-full min-h-0 w-full flex-col gap-4 p-4" },
+      h("div", { className: "shrink-0 space-y-4 overflow-y-auto" },
+        h("div", { className: "flex items-center justify-between" },
           h("div", null,
-            h(CardTitle, null, "Daemon Status"),
-            h("p", { className: "text-sm text-muted-foreground" }, "Current Hermes Chat process state and configuration.")
+            h("h2", { className: "text-2xl font-bold tracking-tight" }, "Hermes Chat"),
+            h("p", { className: "text-muted-foreground" }, "Control the Hermes Chat daemon.")
           ),
-          h("div", { className: "flex flex-wrap gap-2" },
-            h(Button, { onClick: onStart, disabled: loading || status?.running, size: "sm" }, "Start"),
-            h(Button, { onClick: onStop, disabled: loading || !status?.running, size: "sm" }, "Stop"),
-            h(Button, { onClick: onRestart, disabled: loading, size: "sm", variant: "outline" }, "Restart"),
-            h(Button, { onClick: onInstallDeps, disabled: loading, size: "sm", variant: "outline" }, "Install Dependencies")
-          )
+          h(StatusPill, { running: status?.running || false, healthy: status?.healthy || false })
         ),
-        h(CardContent, null,
-          h("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-4 text-sm" },
-            h("div", null,
-              h("div", { className: "text-muted-foreground" }, "Running"),
-              h("div", { className: "font-medium" }, status ? (status.running ? "Yes" : "No") : "—")
-            ),
-            h("div", null,
-              h("div", { className: "text-muted-foreground" }, "Healthy"),
-              h("div", { className: "font-medium" }, status ? (status.healthy ? "Yes" : "No") : "—")
-            ),
-            h("div", null,
-              h("div", { className: "text-muted-foreground" }, "PID"),
-              h("div", { className: "font-medium" }, status?.pid ?? "—")
-            ),
-            h("div", null,
-              h("div", { className: "text-muted-foreground" }, "Port"),
-              h("div", { className: "font-medium" }, status?.config?.port ?? "—")
-            ),
-            h("div", null,
-              h("div", { className: "text-muted-foreground" }, "Bind Address"),
-              h("div", { className: "font-medium" }, status?.config?.host ?? "—")
-            ),
-            h("div", null,
-              h("div", { className: "text-muted-foreground" }, "Log Level"),
-              h("div", { className: "font-medium" }, status?.config?.log_level ?? "—")
-            ),
-            h("div", null,
-              h("div", { className: "text-muted-foreground" }, "Auto Start"),
-              h("div", { className: "font-medium" }, status?.config?.auto_start ? "Yes" : "No")
-            ),
-            h("div", null,
-              h("div", { className: "text-muted-foreground" }, "Debug"),
-              h("div", { className: "font-medium" }, status?.config?.debug ? "Yes" : "No")
-            )
-          )
-        )
-      ),
-      h(Card, null,
-        h(CardHeader, null,
-          h(CardTitle, null, "Network Settings"),
-          h("p", { className: "text-sm text-muted-foreground" }, "Bind address and port. Changes take effect after a daemon restart.")
-        ),
-        h(CardContent, null,
-          h("form", { onSubmit: onSaveSettings, className: "flex flex-col sm:flex-row gap-3 items-end" },
-            h("div", { className: "flex flex-col gap-1 flex-1" },
-              h("label", { className: "text-xs text-muted-foreground font-medium" }, "Bind Address"),
-              h("input", {
-                type: "text",
-                value: settingsHost,
-                onChange: (e) => setSettingsHost(e.target.value),
-                placeholder: "0.0.0.0",
-                className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
-              })
-            ),
-            h("div", { className: "flex flex-col gap-1 w-32" },
-              h("label", { className: "text-xs text-muted-foreground font-medium" }, "Port"),
-              h("input", {
-                type: "number",
-                value: settingsPort,
-                onChange: (e) => setSettingsPort(e.target.value),
-                placeholder: "6969",
-                min: "1",
-                max: "65535",
-                className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
-              })
-            ),
-            h(Button, { type: "submit", disabled: loading }, "Save")
-          )
-        )
-      ),
-      h(Card, null,
-        h(CardHeader, null,
-          h("div", { className: "flex items-center justify-between" },
-            h(CardTitle, null, "Hermes Dashboard URL"),
-            dashboardUrlSource && h("span", { className: "text-xs text-muted-foreground" }, "Source: " + dashboardUrlSource)
+        missingDeps.length > 0 && h("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700 p-3 text-sm flex items-start justify-between gap-3" },
+          h("div", null,
+            h("span", { className: "font-semibold text-yellow-800 dark:text-yellow-200" }, "Missing dependencies: "),
+            h("span", { className: "text-yellow-700 dark:text-yellow-300" }, missingDeps.join(", ")),
+            h("p", { className: "text-yellow-600 dark:text-yellow-400 text-xs mt-1" }, "The daemon cannot start until these are installed.")
           ),
-          h("p", { className: "text-sm text-muted-foreground" }, "Used to show your recently-used Hermes models in the chat model picker. Leave empty to auto-detect.")
+          h(Button, { onClick: onInstallDeps, disabled: loading, size: "sm", variant: "outline" }, loading ? "Installing..." : "Install Now")
         ),
-        h(CardContent, { className: "space-y-3" },
-          h("form", { onSubmit: onSaveDashboardUrl, className: "flex flex-col gap-3" },
-            h("input", {
-              type: "text",
-              value: dashboardUrl,
-              onChange: (e) => setDashboardUrl(e.target.value),
-              placeholder: "http://127.0.0.1:9119",
-              className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
-            }),
+        missingOptionalDeps.length > 0 && missingDeps.length === 0 && h("div", { className: "rounded-md border border-blue-400 bg-blue-50 dark:bg-blue-950 dark:border-blue-700 p-3 text-sm flex items-start justify-between gap-3" },
+          h("div", null,
+            h("span", { className: "font-semibold text-blue-800 dark:text-blue-200" }, "Voice support not installed: "),
+            h("span", { className: "text-blue-700 dark:text-blue-300" }, missingOptionalDeps.map(d => d.requirement).join(", ")),
+            h("p", { className: "text-blue-600 dark:text-blue-400 text-xs mt-1" }, missingOptionalDeps.map(d => d.feature).join(", ") + ". Install to enable voice input and output.")
+          ),
+          h(Button, { onClick: onInstallDeps, disabled: loading, size: "sm", variant: "outline" }, loading ? "Installing..." : "Install Voice")
+        ),
+        notice && h("div", { className: "rounded-md border border-green-400 bg-green-50 dark:bg-green-950 dark:border-green-700 p-3 text-sm flex items-center justify-between gap-3" },
+          h("span", { className: "text-green-800 dark:text-green-200" }, "✓ " + notice),
+          h("button", { onClick: () => setNotice(null), className: "text-green-600 dark:text-green-400 hover:opacity-70 text-xs" }, "✕")
+        ),
+        pendingRestart && h("div", { className: "rounded-md border border-orange-400 bg-orange-50 dark:bg-orange-950 dark:border-orange-700 p-3 text-sm flex items-center justify-between gap-3" },
+          h("span", { className: "text-orange-800 dark:text-orange-200" }, "⚠ Restart required for network settings to take effect."),
+          h(Button, { onClick: onRestartAfterSettings, disabled: loading, size: "sm" }, loading ? "Restarting..." : "Restart Now")
+        ),
+        error && h("div", { className: "rounded-md bg-destructive/15 p-3 text-destructive text-sm" }, error),
+        h(Card, null,
+          h(CardHeader, { className: "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between" },
+            h("div", null,
+              h(CardTitle, null, "Daemon Status"),
+              h("p", { className: "text-sm text-muted-foreground" }, "Current Hermes Chat process state and configuration.")
+            ),
             h("div", { className: "flex flex-wrap gap-2" },
-              h(Button, { type: "submit", disabled: loading, size: "sm" }, "Save Override"),
-              h(Button, { type: "button", variant: "outline", size: "sm", onClick: onVerifyDashboardUrl, disabled: dashboardUrlLoading || !dashboardUrl.trim() }, dashboardUrlLoading ? "Verifying..." : "Verify"),
-              h(Button, { type: "button", variant: "ghost", size: "sm", onClick: onResetDashboardUrl, disabled: loading }, "Use Auto-Detect")
+              h(Button, { onClick: onStart, disabled: loading || status?.running, size: "sm" }, "Start"),
+              h(Button, { onClick: onStop, disabled: loading || !status?.running, size: "sm" }, "Stop"),
+              h(Button, { onClick: onRestart, disabled: loading, size: "sm", variant: "outline" }, "Restart"),
+              h(Button, { onClick: onInstallDeps, disabled: loading, size: "sm", variant: "outline" }, "Install Dependencies")
             )
           ),
-          dashboardUrlVerify && (
-            dashboardUrlVerify.ok
-              ? h("div", { className: "rounded-md border border-green-400 bg-green-50 dark:bg-green-950 dark:border-green-700 p-3 text-sm" }, "✓ Reached dashboard (" + (dashboardUrlVerify.model_count ?? "?") + " models found).")
-              : h("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700 p-3 text-sm" },
-                  h("div", { className: "font-semibold text-yellow-800 dark:text-yellow-200" }, "⚠ Could not verify dashboard URL"),
-                  h("p", { className: "text-yellow-700 dark:text-yellow-300 text-xs mt-1" }, dashboardUrlVerify.error || "Unknown error"),
-                  h("p", { className: "text-yellow-600 dark:text-yellow-400 text-xs mt-1" }, "The chat model picker will fall back to the full model catalog until this is fixed.")
-                )
-          ),
-          !dashboardUrlVerify && !dashboardUrl && h("div", { className: "rounded-md border border-orange-400 bg-orange-50 dark:bg-orange-950 dark:border-orange-700 p-3 text-sm" },
-            h("span", { className: "text-orange-800 dark:text-orange-200" }, "⚠ No dashboard URL detected. Profile-style model switching in chat will not work until the Hermes dashboard URL is set or auto-detected.")
+          h(CardContent, null,
+            h("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-4 text-sm" },
+              h("div", null,
+                h("div", { className: "text-muted-foreground" }, "Running"),
+                h("div", { className: "font-medium" }, status ? (status.running ? "Yes" : "No") : "—")
+              ),
+              h("div", null,
+                h("div", { className: "text-muted-foreground" }, "Healthy"),
+                h("div", { className: "font-medium" }, status ? (status.healthy ? "Yes" : "No") : "—")
+              ),
+              h("div", null,
+                h("div", { className: "text-muted-foreground" }, "PID"),
+                h("div", { className: "font-medium" }, status?.pid ?? "—")
+              ),
+              h("div", null,
+                h("div", { className: "text-muted-foreground" }, "Port"),
+                h("div", { className: "font-medium" }, status?.config?.port ?? "—")
+              ),
+              h("div", null,
+                h("div", { className: "text-muted-foreground" }, "Bind Address"),
+                h("div", { className: "font-medium" }, status?.config?.host ?? "—")
+              ),
+              h("div", null,
+                h("div", { className: "text-muted-foreground" }, "Log Level"),
+                h("div", { className: "font-medium" }, status?.config?.log_level ?? "—")
+              ),
+              h("div", null,
+                h("div", { className: "text-muted-foreground" }, "Auto Start"),
+                h("div", { className: "font-medium" }, status?.config?.auto_start ? "Yes" : "No")
+              ),
+              h("div", null,
+                h("div", { className: "text-muted-foreground" }, "Debug"),
+                h("div", { className: "font-medium" }, status?.config?.debug ? "Yes" : "No")
+              )
+            )
           )
-        )
-      ),
-      h(Card, null,
-        h(CardHeader, null,
-          h(CardTitle, null, "Voice Settings"),
-          h("p", { className: "text-sm text-muted-foreground" }, "Enable or disable voice features and set the default TTS voice for all users.")
         ),
-        h(CardContent, { className: "space-y-4" },
-          !voiceDepsAvailable.tts && !voiceDepsAvailable.stt && h("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700 p-3 text-sm text-yellow-800 dark:text-yellow-200" },
-            "⚠ Voice dependencies are not installed. Install them above to enable voice features."
-          ),
-          h("label", { className: "flex items-center justify-between rounded-md border px-4 py-3 cursor-pointer" },
-            h("div", null,
-              h("div", { className: "text-sm font-medium" }, "Enable Voice"),
-              h("div", { className: "text-xs text-muted-foreground" }, voiceDepsAvailable.tts || voiceDepsAvailable.stt ? "Allow users to use voice input and output." : "Requires voice dependencies to be installed.")
+        h("div", { className: "grid grid-cols-1 gap-4 lg:grid-cols-2" },
+          h(Card, null,
+            h(CardHeader, null,
+              h(CardTitle, null, "Network Settings"),
+              h("p", { className: "text-sm text-muted-foreground" }, "Bind address and port. Changes take effect after a daemon restart.")
             ),
-            h("input", {
-              type: "checkbox",
-              checked: voiceEnabled,
-              disabled: !voiceDepsAvailable.tts && !voiceDepsAvailable.stt,
-              onChange: (e) => setVoiceEnabled(e.target.checked),
-              className: "h-4 w-4 cursor-pointer"
-            })
-          ),
-          h("div", { className: "flex flex-col gap-2" },
-            h("label", { className: "text-sm font-medium" }, "Default TTS Voice"),
-            h("p", { className: "text-xs text-muted-foreground" }, "Used as the fallback voice when users haven't chosen one."),
-            h("select", {
-              value: defaultTtsVoice,
-              onChange: (e) => setDefaultTtsVoice(e.target.value),
-              disabled: !voiceDepsAvailable.tts,
-              className: "rounded-md border border-input bg-background px-3 py-2 text-sm max-w-xs" + (!voiceDepsAvailable.tts ? " opacity-40 cursor-not-allowed" : "")
-            },
-              TTS_VOICES.map(v => h("option", { key: v.value, value: v.value }, v.label))
+            h(CardContent, null,
+              h("form", { onSubmit: onSaveSettings, className: "flex flex-col sm:flex-row gap-3 items-end" },
+                h("div", { className: "flex flex-col gap-1 flex-1" },
+                  h("label", { className: "text-xs text-muted-foreground font-medium" }, "Bind Address"),
+                  h("input", {
+                    type: "text",
+                    value: settingsHost,
+                    onChange: (e) => setSettingsHost(e.target.value),
+                    placeholder: "0.0.0.0",
+                    className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  })
+                ),
+                h("div", { className: "flex flex-col gap-1 w-32" },
+                  h("label", { className: "text-xs text-muted-foreground font-medium" }, "Port"),
+                  h("input", {
+                    type: "number",
+                    value: settingsPort,
+                    onChange: (e) => setSettingsPort(e.target.value),
+                    placeholder: "6969",
+                    min: "1",
+                    max: "65535",
+                    className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  })
+                ),
+                h(Button, { type: "submit", disabled: loading }, "Save")
+              )
             )
           ),
-          h(Button, { onClick: onSaveVoiceSettings, disabled: loading, size: "sm" }, "Save Voice Settings")
-        )
-      ),
-      h(Card, null,
-        h(CardHeader, null,
-          h(CardTitle, null, "Chat Users"),
-          h("p", { className: "text-sm text-muted-foreground" }, "Add or remove users for the standalone chat UI. New users can log in immediately — no restart needed.")
+          h(Card, null,
+            h(CardHeader, null,
+              h("div", { className: "flex items-center justify-between" },
+                h(CardTitle, null, "Hermes Dashboard URL"),
+                dashboardUrlSource && h("span", { className: "text-xs text-muted-foreground" }, "Source: " + dashboardUrlSource)
+              ),
+              h("p", { className: "text-sm text-muted-foreground" }, "Used to show your recently-used Hermes models in the chat model picker. Leave empty to auto-detect.")
+            ),
+            h(CardContent, { className: "space-y-3" },
+              h("form", { onSubmit: onSaveDashboardUrl, className: "flex flex-col gap-3" },
+                h("input", {
+                  type: "text",
+                  value: dashboardUrl,
+                  onChange: (e) => setDashboardUrl(e.target.value),
+                  placeholder: "http://127.0.0.1:9119",
+                  className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
+                }),
+                h("div", { className: "flex flex-wrap gap-2" },
+                  h(Button, { type: "submit", disabled: loading, size: "sm" }, "Save Override"),
+                  h(Button, { type: "button", variant: "outline", size: "sm", onClick: onVerifyDashboardUrl, disabled: dashboardUrlLoading || !dashboardUrl.trim() }, dashboardUrlLoading ? "Verifying..." : "Verify"),
+                  h(Button, { type: "button", variant: "ghost", size: "sm", onClick: onResetDashboardUrl, disabled: loading }, "Use Auto-Detect")
+                )
+              ),
+              dashboardUrlVerify && (
+                dashboardUrlVerify.ok
+                  ? h("div", { className: "rounded-md border border-green-400 bg-green-50 dark:bg-green-950 dark:border-green-700 p-3 text-sm" }, "✓ Reached dashboard (" + (dashboardUrlVerify.model_count ?? "?") + " models found).")
+                  : h("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700 p-3 text-sm" },
+                      h("div", { className: "font-semibold text-yellow-800 dark:text-yellow-200" }, "⚠ Could not verify dashboard URL"),
+                      h("p", { className: "text-yellow-700 dark:text-yellow-300 text-xs mt-1" }, dashboardUrlVerify.error || "Unknown error"),
+                      h("p", { className: "text-yellow-600 dark:text-yellow-400 text-xs mt-1" }, "The chat model picker will fall back to the full model catalog until this is fixed.")
+                    )
+              ),
+              !dashboardUrlVerify && !dashboardUrl && h("div", { className: "rounded-md border border-orange-400 bg-orange-50 dark:bg-orange-950 dark:border-orange-700 p-3 text-sm" },
+                h("span", { className: "text-orange-800 dark:text-orange-200" }, "⚠ No dashboard URL detected. Profile-style model switching in chat will not work until the Hermes dashboard URL is set or auto-detected.")
+              )
+            )
+          )
         ),
-        h(CardContent, { className: "space-y-4" },
-          h("form", { onSubmit: onCreateUser, className: "flex flex-col sm:flex-row gap-2" },
-            h("input", {
-              type: "text",
-              placeholder: "Username",
-              value: newUsername,
-              onChange: (e) => setNewUsername(e.target.value),
-              required: true,
-              className: "flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
-            }),
-            h("input", {
-              type: "password",
-              placeholder: "Password",
-              value: newPassword,
-              onChange: (e) => setNewPassword(e.target.value),
-              required: true,
-              className: "flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
-            }),
-            h(Button, { type: "submit", disabled: loading }, "Add User")
+        h("div", { className: "grid grid-cols-1 gap-4 lg:grid-cols-2" },
+          h(Card, null,
+            h(CardHeader, null,
+              h(CardTitle, null, "Voice Settings"),
+              h("p", { className: "text-sm text-muted-foreground" }, "Enable or disable voice features and set the default TTS voice for all users.")
+            ),
+            h(CardContent, { className: "space-y-4" },
+              !voiceDepsAvailable.tts && !voiceDepsAvailable.stt && h("div", { className: "rounded-md border border-yellow-400 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-700 p-3 text-sm text-yellow-800 dark:text-yellow-200" },
+                "⚠ Voice dependencies are not installed. Install them above to enable voice features."
+              ),
+              h("label", { className: "flex items-center justify-between rounded-md border px-4 py-3 cursor-pointer" },
+                h("div", null,
+                  h("div", { className: "text-sm font-medium" }, "Enable Voice"),
+                  h("div", { className: "text-xs text-muted-foreground" }, voiceDepsAvailable.tts || voiceDepsAvailable.stt ? "Allow users to use voice input and output." : "Requires voice dependencies to be installed.")
+                ),
+                h("input", {
+                  type: "checkbox",
+                  checked: voiceEnabled,
+                  disabled: !voiceDepsAvailable.tts && !voiceDepsAvailable.stt,
+                  onChange: (e) => setVoiceEnabled(e.target.checked),
+                  className: "h-4 w-4 cursor-pointer"
+                })
+              ),
+              h("div", { className: "flex flex-col gap-2" },
+                h("label", { className: "text-sm font-medium" }, "Default TTS Voice"),
+                h("p", { className: "text-xs text-muted-foreground" }, "Used as the fallback voice when users haven't chosen one."),
+                h("select", {
+                  value: defaultTtsVoice,
+                  onChange: (e) => setDefaultTtsVoice(e.target.value),
+                  disabled: !voiceDepsAvailable.tts,
+                  className: "rounded-md border border-input bg-background px-3 py-2 text-sm max-w-xs" + (!voiceDepsAvailable.tts ? " opacity-40 cursor-not-allowed" : "")
+                },
+                  TTS_VOICES.map(v => h("option", { key: v.value, value: v.value }, v.label))
+                )
+              ),
+              h(Button, { onClick: onSaveVoiceSettings, disabled: loading, size: "sm" }, "Save Voice Settings")
+            )
           ),
-          h("div", { className: "space-y-2" },
-            users.length === 0 && h("p", { className: "text-sm text-muted-foreground" }, "No users yet."),
-            users.map((u) => h("div", {
-              key: u.user_id,
-              className: "flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-            },
-              h("span", null, u.username),
-              h(Button, {
-                variant: "destructive",
-                size: "sm",
-                onClick: () => onDeleteUser(u.user_id),
-                disabled: loading
-              }, "Delete")
-            ))
+          h(Card, null,
+            h(CardHeader, null,
+              h(CardTitle, null, "Chat Users"),
+              h("p", { className: "text-sm text-muted-foreground" }, "Add or remove users for the standalone chat UI. New users can log in immediately — no restart needed.")
+            ),
+            h(CardContent, { className: "space-y-4" },
+              h("form", { onSubmit: onCreateUser, className: "flex flex-col sm:flex-row gap-2" },
+                h("input", {
+                  type: "text",
+                  placeholder: "Username",
+                  value: newUsername,
+                  onChange: (e) => setNewUsername(e.target.value),
+                  required: true,
+                  className: "flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                }),
+                h("input", {
+                  type: "password",
+                  placeholder: "Password",
+                  value: newPassword,
+                  onChange: (e) => setNewPassword(e.target.value),
+                  required: true,
+                  className: "flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                }),
+                h(Button, { type: "submit", disabled: loading }, "Add User")
+              ),
+              h("div", { className: "space-y-2" },
+                users.length === 0 && h("p", { className: "text-sm text-muted-foreground" }, "No users yet."),
+                users.map((u) => h("div", {
+                  key: u.user_id,
+                  className: "flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                },
+                  h("span", null, u.username),
+                  h(Button, {
+                    variant: "destructive",
+                    size: "sm",
+                    onClick: () => onDeleteUser(u.user_id),
+                    disabled: loading
+                  }, "Delete")
+                ))
+              )
+            )
           )
         )
       ),
-      h(Card, null,
-        h(CardHeader, null,
+      h(Card, { className: "flex min-h-0 flex-1 flex-col" },
+        h(CardHeader, { className: "shrink-0" },
           h("div", { className: "flex items-center justify-between" },
             h(CardTitle, null, "Daemon Logs"),
             h("div", { className: "flex gap-2" },
@@ -596,11 +602,10 @@
               : "Last 100 lines from the Hermes Chat daemon log. Auto-scrolls to bottom."
           )
         ),
-        h(CardContent, { style: { padding: "0 1rem 1rem" } },
+        h(CardContent, { className: "flex min-h-0 flex-1 flex-col", style: { padding: "0 1rem 1rem" } },
           h("pre", {
             ref: logsBoxRef,
-            className: "rounded-md bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-all",
-            style: { height: "320px", overflowY: "scroll" }
+            className: "h-full min-h-[16rem] flex-1 overflow-auto rounded-md bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-all"
           },
             logs || "No logs yet."
           )
