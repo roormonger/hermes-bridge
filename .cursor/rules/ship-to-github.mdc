@@ -1,0 +1,34 @@
+---
+description: Always build, commit, and push so Hermes GUI can install from GitHub
+alwaysApply: true
+---
+
+# Ship every change to GitHub
+
+The developer does **not** run this plugin locally. They update/install hermes-chat from the **Hermes GUI** against the GitHub repo. Unpushed work is invisible to them.
+
+## After every add or fix
+
+Before ending the turn (unless they explicitly say not to):
+
+1. **Build** anything that needs a build (see below).
+2. **Commit** source **and** built artifacts.
+3. **Push** to `origin` on the current branch.
+
+Do not wait to be asked “did you build/commit/push?” — that is part of finishing the change.
+
+## What to build
+
+Hermes plugin install does **not** run a frontend build. Committed `dist` must be production-ready:
+
+| Area | Build | Commit these outputs |
+|---|---|---|
+| Chat UI | `npm run build` in `webui/` | `webui/dist/**` |
+| Dashboard tab | hand-written; no separate build | `dashboard/dist/index.js` (edit and commit as-is) |
+
+If you change TypeScript/React under `webui/src/`, rebuild before commit. Stale `webui/dist` means the installed plugin still serves the old UI.
+
+## Exceptions
+
+- Skip commit/push only when the user says so, or when the change is purely local scratch they asked not to publish.
+- Still never force-push `main`/`master` or skip hooks unless they explicitly request it.
