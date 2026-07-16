@@ -36,7 +36,7 @@ When improving chat UX or gateway integration, load project skills:
 
 - `.cursor/skills/hermes-webui-reference` — steal chat patterns only
 - `.cursor/skills/hermes-client-reference` — steal chat patterns only; never their auto-approve gates
-- `.cursor/skills/hermes-install` — local `hermes install/` + `tui_gateway` map
+- `.cursor/skills/hermes-home-reference` — local `hermes install/` + `tui_gateway` map (folder stays gitignored)
 - `docs/hermes-gateway-protocol.md` — RPC/event catalog already derived from the install
 
 When in doubt: if removing the feature would still leave a great chat app, it’s in scope; if it only exists to administer Hermes, leave it alone.
