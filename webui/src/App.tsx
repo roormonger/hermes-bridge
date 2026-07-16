@@ -93,6 +93,21 @@ const generateId = () => {
   });
 };
 
+/** Read `/chat/<id>` from the path; bare `/chat` → null. */
+function chatIdFromPath(pathname = window.location.pathname): string | null {
+  const match = pathname.match(/^\/chat\/([^/]+)\/?$/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+function pathForChat(chatId: string | null): string {
+  return chatId ? `/chat/${encodeURIComponent(chatId)}` : "/chat";
+}
+
 const IMAGE_URL_RE =
   /(?<![\!\[\]\(\)])https?:\/\/[^\s<>"{}|\\^\[\]]+\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|tiff|avif)(?:\?[^\s<>"{}|\\^\[\]]*)?/gi;
 
@@ -1024,7 +1039,7 @@ function ChatApp() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [chats, setChats] = useState<Chat[]>([]);
-  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(() => chatIdFromPath());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const { autoSpeak, toggleAutoSpeak } = useAutoSpeak();
@@ -1069,18 +1084,48 @@ function ChatApp() {
   const usageKnownRef = useRef(false);
   const rafPendingRef = useRef(false);
 
+  const selectChat = useCallback((chatId: string | null, opts?: { replace?: boolean }) => {
+    setCurrentChatId(chatId);
+    const next = pathForChat(chatId);
+    if (window.location.pathname === next) return;
+    if (opts?.replace) {
+      window.history.replaceState(null, "", next);
+    } else {
+      window.history.pushState(null, "", next);
+    }
+  }, []);
+
   useEffect(() => {
     currentChatIdRef.current = currentChatId;
+  }, [currentChatId]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      setCurrentChatId(chatIdFromPath());
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    const next = pathForChat(currentChatId);
+    if (window.location.pathname !== next) {
+      window.history.replaceState(null, "", next);
+    }
   }, [currentChatId]);
 
   const loadChats = useCallback(async () => {
     try {
       const data = await apiFetch("/api/chats");
       setChats(data);
+      const fromUrl = chatIdFromPath();
+      if (fromUrl && !data.some((c: Chat) => c.chat_id === fromUrl)) {
+        selectChat(null, { replace: true });
+      }
     } catch (e) {
       setError((e as Error).message);
     }
-  }, []);
+  }, [selectChat]);
 
   const loadMessages = useCallback(async (chatId: string) => {
     try {
@@ -1204,7 +1249,7 @@ function ChatApp() {
         body: JSON.stringify({ title: "New chat" }),
       });
       setChats((prev) => [data, ...prev]);
-      setCurrentChatId(data.chat_id);
+      selectChat(data.chat_id);
       setMobileSidebarOpen(false);
     } catch (e) {
       setError((e as Error).message);
@@ -1257,7 +1302,7 @@ function ChatApp() {
       await apiFetch(`/api/chats/${chatId}`, { method: "DELETE" });
       setChats((prev) => prev.filter((c) => c.chat_id !== chatId));
       if (currentChatId === chatId) {
-        setCurrentChatId(null);
+        selectChat(null, { replace: true });
         setMessages([]);
       }
     } catch (e) {
@@ -1796,7 +1841,7 @@ function ChatApp() {
           body: JSON.stringify({ title: "New chat" }),
         });
         setChats((prev) => [data, ...prev]);
-        setCurrentChatId(data.chat_id);
+        selectChat(data.chat_id);
         chatId = data.chat_id;
       }
 
@@ -1939,7 +1984,7 @@ function ChatApp() {
       <ChatSidebar
         chats={chats}
         currentChatId={currentChatId}
-        onSelect={(id) => { setCurrentChatId(id); setMobileSidebarOpen(false); }}
+        onSelect={(id) => { selectChat(id); setMobileSidebarOpen(false); }}
         onNew={() => { void createChat(); }}
         onRename={renameChat}
         onDelete={deleteChat}

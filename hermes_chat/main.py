@@ -95,6 +95,16 @@ async def root_redirect() -> RedirectResponse:
 
 @app.get("/chat")
 async def chat_ui() -> FileResponse:
+    return _chat_index()
+
+
+@app.get("/chat/{chat_id}")
+async def chat_ui_with_id(chat_id: str) -> FileResponse:
+    """SPA entry for a deep-linked chat. The React app reads chat_id from the path."""
+    return _chat_index()
+
+
+def _chat_index() -> FileResponse:
     index_path = _webui_dir / "index.html"
     if not index_path.exists():
         logger.error("hermes-chat web UI not found at %s", index_path)

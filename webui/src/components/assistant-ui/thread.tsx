@@ -308,7 +308,11 @@ export const Thread: FC<{
       }}
     >
       <ThreadPrimitive.Viewport
-        turnAnchor="top"
+        turnAnchor="bottom"
+        autoScroll
+        scrollToBottomOnInitialize
+        scrollToBottomOnThreadSwitch
+        scrollToBottomOnRunStart
         data-slot="aui_thread-viewport"
         className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
       >
