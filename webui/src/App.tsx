@@ -71,6 +71,7 @@ type ChatMessage = {
   activity?: "connecting" | "syncing";
   gate?: Gate | null;
   toolSteps?: ToolStep[];
+  reasoning?: string;
   streamSeq?: number;
   createdAt?: number;
   usage?: {
@@ -164,6 +165,9 @@ const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
   role: msg.role,
   content: [
     ...(msg.images ?? []).map((src) => ({ type: "image" as const, image: src })),
+    ...(msg.reasoning?.trim()
+      ? [{ type: "reasoning" as const, text: msg.reasoning }]
+      : []),
     ...(msg.toolSteps ?? []).map((step, index) => ({
       type: "tool-call" as const,
       toolCallId: `${msg.id}-tool-${index}-${step.id || step.name}`,
@@ -982,6 +986,7 @@ function ChatApp() {
 
   const assistantIdRef = useRef<string | null>(null);
   const assistantContentRef = useRef("");
+  const assistantReasoningRef = useRef("");
   const assistantToolStepsRef = useRef<ToolStep[]>([]);
   const streamSeqRef = useRef(0);
   const runIdRef = useRef<string | null>(null);
@@ -1015,6 +1020,7 @@ function ChatApp() {
         images: m.images?.length ? m.images : undefined,
         status: m.role === "assistant" ? ("complete" as const) : undefined,
         toolSteps: m.tool_steps?.length ? m.tool_steps : undefined,
+        reasoning: m.reasoning?.trim() ? m.reasoning : undefined,
         streamSeq: Number(m.stream_seq || 0),
         createdAt: m.created_at ? m.created_at * 1000 : Date.now(),
         usage: m.usage || undefined,
@@ -1202,11 +1208,16 @@ function ChatApp() {
     chatId: string,
     messageId: string,
     content: string,
-    toolSteps?: ToolStep[]
+    toolSteps?: ToolStep[],
+    reasoning?: string,
   ) => {
     await apiFetch(`/api/chats/${chatId}/messages/${messageId}`, {
       method: "PUT",
-      body: JSON.stringify({ content, tool_steps: toolSteps ?? [] }),
+      body: JSON.stringify({
+        content,
+        tool_steps: toolSteps ?? [],
+        reasoning: reasoning ?? null,
+      }),
     });
   };
 
@@ -1239,6 +1250,18 @@ function ChatApp() {
             );
           });
         }
+      } else if (event.type === "reasoning") {
+        if (event.replace) {
+          assistantReasoningRef.current = event.text;
+        } else {
+          assistantReasoningRef.current += event.text;
+        }
+        const reasoning = assistantReasoningRef.current;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, reasoning } : m
+          )
+        );
       } else if (event.type === "tool_start") {
         const sourceId = event.tool_id || event.name;
         const toolId = `${assistantId}-tool-${assistantToolStepsRef.current.length}-${sourceId}`;
@@ -1295,7 +1318,7 @@ function ChatApp() {
               : m
           )
         );
-        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current).catch(() => {});
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current, assistantReasoningRef.current).catch(() => {});
       } else if (event.type === "turn_complete") {
         setMessages((prev) =>
           prev.map((m) =>
@@ -1305,7 +1328,7 @@ function ChatApp() {
           )
         );
         setIsRunning(false);
-        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current).catch(() => {});
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current, assistantReasoningRef.current).catch(() => {});
         if (autoSpeakRef.current && voiceCaps.ttsAvailable && assistantContentRef.current.trim()) {
           speakText(assistantContentRef.current, undefined, ttsVoice).then((url) => {
             const audio = new Audio(url);
@@ -1378,7 +1401,7 @@ function ChatApp() {
           )
         );
         setIsRunning(false);
-        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current).catch(() => {});
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current, assistantReasoningRef.current).catch(() => {});
       }
     },
     [setChats]
@@ -1397,6 +1420,7 @@ function ChatApp() {
         const assistantId = recoveryCandidate.message.id;
         assistantIdRef.current = assistantId;
         assistantContentRef.current = recoveryCandidate.message.content;
+        assistantReasoningRef.current = recoveryCandidate.message.reasoning ?? "";
         assistantToolStepsRef.current = recoveryCandidate.message.toolSteps ?? [];
         streamSeqRef.current = recoveryCandidate.message.streamSeq ?? 0;
         runIdRef.current = run.run_id;
@@ -1460,6 +1484,7 @@ function ChatApp() {
     setIsRunning(true);
     setError(null);
     assistantContentRef.current = "";
+    assistantReasoningRef.current = "";
     assistantToolStepsRef.current = [];
     streamSeqRef.current = 0;
     runIdRef.current = null;
@@ -1544,7 +1569,7 @@ function ChatApp() {
             : m
         )
       );
-      updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current).catch(() => {});
+      updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current, assistantReasoningRef.current).catch(() => {});
     }
 
     let afterUsage: ChatMessage["usage"] = {};
@@ -1665,7 +1690,7 @@ function ChatApp() {
         )
       );
       if (assistantId && chatId) {
-        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current).catch(() => {});
+        updateBackendMessage(chatId, assistantId, assistantContentRef.current, assistantToolStepsRef.current, assistantReasoningRef.current).catch(() => {});
       }
     },
     onNew: async (message: AppendMessage) => {
@@ -1726,9 +1751,10 @@ function ChatApp() {
       const sourceId = (message as any).sourceId;
       if (!chatId || !sourceId) return;
       const text = getAppendText(message);
-      const existingToolSteps = messages.find((m) => m.id === sourceId)?.toolSteps;
+      const existing = messages.find((m) => m.id === sourceId);
+      const existingToolSteps = existing?.toolSteps;
       try {
-        await updateBackendMessage(chatId, sourceId, text, existingToolSteps);
+        await updateBackendMessage(chatId, sourceId, text, existingToolSteps, existing?.reasoning);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === sourceId ? { ...m, content: text } : m

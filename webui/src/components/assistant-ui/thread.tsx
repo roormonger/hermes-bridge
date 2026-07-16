@@ -4,6 +4,14 @@ import {
   UserMessageAttachments,
 } from "@/components/assistant-ui/attachment";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
+import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningRoot,
+  ReasoningText,
+  ReasoningTrigger,
+} from "@/components/assistant-ui/reasoning";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -679,36 +687,10 @@ type ToolCallPart = {
   status?: { type: "running" } | { type: "complete" };
   result?: string;
   durationS?: number;
+  toolUI?: ReactNode;
 };
 
-const ToolCallRow: FC<{ step: ToolCallPart }> = ({ step }) => {
-  const isRunning = step.status?.type === "running";
-  return (
-    <div className="flex items-start gap-2 px-3 py-2">
-      <div className="mt-0.5 shrink-0">
-        {isRunning ? (
-          <span className="size-1.5 rounded-full bg-amber-400 animate-pulse inline-block" />
-        ) : (
-          <span className="size-1.5 rounded-full bg-emerald-500 inline-block" />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <span className="font-medium text-foreground/80">{step.toolName}</span>
-        {step.argsText && (
-          <span className="text-muted-foreground"> · {step.argsText}</span>
-        )}
-        {step.result && (
-          <div className="text-muted-foreground mt-0.5 truncate">{step.result}</div>
-        )}
-      </div>
-      {step.durationS != null && (
-        <span className="shrink-0 text-muted-foreground/70">{step.durationS.toFixed(1)}s</span>
-      )}
-    </div>
-  );
-};
-
-const ToolStepsGroup: FC<{ children: ReactNode }> = ({ children }) => {
+const ToolStepsGroup: FC<{ children: ReactNode; active?: boolean }> = ({ children, active = false }) => {
   const [open, setOpen] = useState(false);
   const count = Children.toArray(children).length;
   if (count === 0) return null;
@@ -719,9 +701,12 @@ const ToolStepsGroup: FC<{ children: ReactNode }> = ({ children }) => {
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+            active && "border-amber-500/40 text-amber-700 dark:text-amber-300",
+          )}
         >
-          <WrenchIcon className="size-3" />
+          <WrenchIcon className={cn("size-3", active && "animate-pulse")} />
           <span>{label}</span>
           <ChevronDownIcon className={cn("size-3 transition-transform", open && "rotate-180")} />
         </button>
@@ -838,12 +823,30 @@ const AssistantMessage: FC = () => {
         className="text-foreground px-2 leading-relaxed wrap-break-word [contain-intrinsic-size:auto_24px] [content-visibility:auto]"
       >
         <MessagePrimitive.GroupedParts
-          groupBy={groupPartByType({ "tool-call": ["group-tool"] })}
+          groupBy={groupPartByType({
+            reasoning: ["group-reasoning"],
+            "tool-call": ["group-tool"],
+          })}
         >
           {({ part, children }) => {
             switch (part.type) {
+              case "group-reasoning": {
+                const running = part.status?.type === "running";
+                return (
+                  <ReasoningRoot streaming={running}>
+                    <ReasoningTrigger active={running} />
+                    <ReasoningContent aria-busy={running}>
+                      <ReasoningText>{children}</ReasoningText>
+                    </ReasoningContent>
+                  </ReasoningRoot>
+                );
+              }
               case "group-tool":
-                return <ToolStepsGroup>{children}</ToolStepsGroup>;
+                return (
+                  <ToolStepsGroup active={part.status?.type === "running"}>
+                    {children}
+                  </ToolStepsGroup>
+                );
               case "text":
                 return (
                   <>
@@ -853,8 +856,12 @@ const AssistantMessage: FC = () => {
                     </AuiIf>
                   </>
                 );
-              case "tool-call":
-                return <ToolCallRow step={part as unknown as ToolCallPart} />;
+              case "reasoning":
+                return <Reasoning {...(part as any)} />;
+              case "tool-call": {
+                const toolPart = part as ToolCallPart & { toolUI?: ReactNode };
+                return (toolPart.toolUI as any) ?? <ToolFallback {...(part as any)} />;
+              }
               default:
                 return null;
             }

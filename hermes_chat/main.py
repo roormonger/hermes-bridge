@@ -155,11 +155,13 @@ class SaveMessageRequest(BaseModel):
     content: str
     images: list[str] = []
     tool_steps: list[dict] | None = None
+    reasoning: str | None = None
 
 
 class UpdateMessageRequest(BaseModel):
     content: str
     tool_steps: list[dict] | None = None
+    reasoning: str | None = None
 
 
 class UsageSaveRequest(BaseModel):
@@ -893,6 +895,7 @@ async def save_message(chat_id: str, request: SaveMessageRequest, current_user: 
         request.content,
         images=request.images or None,
         tool_steps=request.tool_steps or None,
+        reasoning=request.reasoning or None,
     )
     return {"id": message_id, "role": request.role, "content": request.content}
 
@@ -901,7 +904,14 @@ async def save_message(chat_id: str, request: SaveMessageRequest, current_user: 
 async def update_message(chat_id: str, message_id: int, request: UpdateMessageRequest, current_user: dict = Depends(get_current_user)) -> dict:
     if history.get_chat(chat_id, current_user["user_id"]) is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    history.update_message(message_id, current_user["user_id"], request.content, tool_steps=request.tool_steps or None)
+    history.update_message(
+        message_id,
+        current_user["user_id"],
+        request.content,
+        tool_steps=request.tool_steps or None,
+        # Pass through only when the client included the field (incl. "").
+        reasoning=request.reasoning if "reasoning" in request.model_fields_set else None,
+    )
     return {"id": message_id, "content": request.content}
 
 

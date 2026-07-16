@@ -26,6 +26,7 @@ class ChatRun:
     status: str = "starting"
     seq: int = 0
     content: str = ""
+    reasoning: str = ""
     tool_steps: list[dict] = field(default_factory=list)
     pending_gate: Optional[dict] = None
     events: list[dict] = field(default_factory=list)
@@ -94,6 +95,7 @@ class ChatRunManager:
                 assistant_message_id=assistant_message_id,
                 session=session,
                 content=assistant["content"],
+                reasoning=assistant.get("reasoning") or "",
                 tool_steps=assistant["tool_steps"],
                 seq=int(assistant.get("stream_seq") or 0),
             )
@@ -246,6 +248,12 @@ class ChatRunManager:
         event_type = event.get("type", "")
         if event_type == "text":
             run.content += event.get("text", "")
+        elif event_type == "reasoning":
+            text = event.get("text", "")
+            if event.get("replace"):
+                run.reasoning = text
+            else:
+                run.reasoning += text
         elif event_type == "tool_start":
             source_id = event.get("tool_id") or event.get("name", "")
             run.tool_steps.append(
@@ -268,6 +276,7 @@ class ChatRunManager:
             run.content,
             run.tool_steps,
             stream_seq=run.seq,
+            reasoning=run.reasoning or None,
         )
 
         async with run.condition:

@@ -91,6 +91,12 @@ class ChatHistoryStore:
             conn.commit()
         except sqlite3.OperationalError:
             pass
+        # Migration: add reasoning_text for model thinking / chain-of-thought.
+        try:
+            conn.execute("ALTER TABLE messages ADD COLUMN reasoning_text TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
         # Migration: add pinned column for sidebar pinning.
         try:
             conn.execute("ALTER TABLE chats ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
@@ -168,6 +174,7 @@ class ChatHistoryStore:
         content: str,
         images: list[str] | None = None,
         tool_steps: list[dict] | None = None,
+        reasoning: str | None = None,
     ) -> int:
         conn = self._conn()
         # Ensure the chat belongs to the user (or is unowned) before adding a message.
@@ -177,8 +184,8 @@ class ChatHistoryStore:
         images_json = json.dumps(images) if images else None
         tool_steps_json = json.dumps(tool_steps) if tool_steps else None
         cur = conn.execute(
-            "INSERT INTO messages (chat_id, role, content, images, tool_steps_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (chat_id, role, content, images_json, tool_steps_json, time.time()),
+            "INSERT INTO messages (chat_id, role, content, images, tool_steps_json, reasoning_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (chat_id, role, content, images_json, tool_steps_json, reasoning or None, time.time()),
         )
         conn.execute(
             f"UPDATE chats SET updated_at = ? WHERE chat_id = ? AND ({self._user_where(user_id)})",
@@ -194,23 +201,29 @@ class ChatHistoryStore:
         content: str,
         tool_steps: list[dict] | None = None,
         stream_seq: int | None = None,
+        reasoning: str | None = None,
     ) -> None:
         conn = self._conn()
         tool_steps_json = json.dumps(tool_steps) if tool_steps else None
-        if stream_seq is None:
-            assignments = "content = ?, tool_steps_json = ?"
-            params = (content, tool_steps_json, message_id, *self._user_params(user_id))
-        else:
-            assignments = "content = ?, tool_steps_json = ?, stream_seq = ?"
-            params = (content, tool_steps_json, stream_seq, message_id, *self._user_params(user_id))
+        assignments = ["content = ?", "tool_steps_json = ?"]
+        params: list = [content, tool_steps_json]
+        # Only touch reasoning_text when the caller passes a string (including "").
+        # Omit the kwarg to leave existing reasoning unchanged.
+        if reasoning is not None:
+            assignments.append("reasoning_text = ?")
+            params.append(reasoning or None)
+        if stream_seq is not None:
+            assignments.append("stream_seq = ?")
+            params.append(stream_seq)
+        params.extend([message_id, *self._user_params(user_id)])
         conn.execute(
             f"""
-            UPDATE messages SET {assignments}
+            UPDATE messages SET {", ".join(assignments)}
             WHERE id = ? AND chat_id IN (
                 SELECT chat_id FROM chats WHERE {self._user_where(user_id)}
             )
             """,
-            params,
+            tuple(params),
         )
         conn.commit()
 
@@ -234,7 +247,7 @@ class ChatHistoryStore:
         if chat is None:
             return []
         rows = conn.execute(
-            "SELECT id, role, content, images, usage_json, tool_steps_json, stream_seq, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
+            "SELECT id, role, content, images, usage_json, tool_steps_json, reasoning_text, stream_seq, created_at FROM messages WHERE chat_id = ? ORDER BY id ASC",
             (chat_id,),
         ).fetchall()
         result = []
@@ -246,6 +259,7 @@ class ChatHistoryStore:
             d["usage"] = json.loads(raw_usage) if raw_usage else None
             raw_tool_steps = d.pop("tool_steps_json", None)
             d["tool_steps"] = json.loads(raw_tool_steps) if raw_tool_steps else []
+            d["reasoning"] = d.pop("reasoning_text", None) or ""
             result.append(d)
         return result
 
@@ -253,7 +267,7 @@ class ChatHistoryStore:
         conn = self._conn()
         row = conn.execute(
             f"""
-            SELECT id, chat_id, role, content, tool_steps_json, stream_seq, created_at
+            SELECT id, chat_id, role, content, tool_steps_json, reasoning_text, stream_seq, created_at
             FROM messages
             WHERE id = ? AND chat_id IN (
                 SELECT chat_id FROM chats WHERE {self._user_where(user_id)}
@@ -266,6 +280,7 @@ class ChatHistoryStore:
         message = dict(row)
         raw_tool_steps = message.pop("tool_steps_json", None)
         message["tool_steps"] = json.loads(raw_tool_steps) if raw_tool_steps else []
+        message["reasoning"] = message.pop("reasoning_text", None) or ""
         return message
 
     def delete_messages(self, chat_id: str, user_id: Optional[str]) -> None:

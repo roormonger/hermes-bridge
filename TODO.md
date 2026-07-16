@@ -8,7 +8,7 @@
 
 - [x] **Better error surface via `ErrorPrimitive`** — Stream errors currently silently set `status: "complete"`. Set `status: { type: "incomplete", reason: "error" }` on the message and attach an error string so `ErrorPrimitive` / `MessageError` actually shows it inline in the thread.
 
-- [ ] **`makeAssistantToolUI` for tool steps** — Replace the custom `ToolStepsPill` (which reads from `metadata.custom.toolSteps`) with proper `tool-call` message parts. Emit tool steps as `tool-call` parts from the backend SSE stream (or map them in `toThreadMessage`), then use `makeAssistantToolUI` to render each tool with running/complete/error states, args, and results natively.
+- [x] **Tool steps as assistant-ui `tool-call` parts + reasoning** — Tools render via `ToolFallback` (assistant-ui registry pattern; `makeAssistantToolUI` is for named tools, Hermes tools are dynamic). Model thinking streams from `reasoning.delta` / `thinking.delta`, shows in a Thoughts accordion, and persists as `messages.reasoning_text`.
 
 ### 🟡 Medium value
 

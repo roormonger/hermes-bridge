@@ -149,6 +149,18 @@ def _translate_event(frame: dict) -> Optional[dict]:
             "artifact": payload.get("artifact"),
         }
 
+    if etype in ("reasoning.delta", "thinking.delta"):
+        text = payload.get("text") or payload.get("delta") or ""
+        if not text:
+            return None
+        return {"type": "reasoning", "text": text}
+
+    if etype == "reasoning.available":
+        text = payload.get("text") or ""
+        if not text:
+            return None
+        return {"type": "reasoning", "text": text, "replace": True}
+
     if etype == "approval.request":
         return {
             "type": "gate_interrupt",
