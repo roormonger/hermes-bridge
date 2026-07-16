@@ -6,7 +6,7 @@
 
 - [x] **Wire `ActionBarPrimitive.Reload`** — The regenerate button renders but does nothing. Add an `onReload` handler to `useExternalStoreRuntime` that re-submits the last user message to the stream.
 
-- [ ] **Better error surface via `ErrorPrimitive`** — Stream errors currently silently set `status: "complete"`. Set `status: { type: "incomplete", reason: "error" }` on the message and attach an error string so `ErrorPrimitive` / `MessageError` actually shows it inline in the thread.
+- [x] **Better error surface via `ErrorPrimitive`** — Stream errors currently silently set `status: "complete"`. Set `status: { type: "incomplete", reason: "error" }` on the message and attach an error string so `ErrorPrimitive` / `MessageError` actually shows it inline in the thread.
 
 - [ ] **`makeAssistantToolUI` for tool steps** — Replace the custom `ToolStepsPill` (which reads from `metadata.custom.toolSteps`) with proper `tool-call` message parts. Emit tool steps as `tool-call` parts from the backend SSE stream (or map them in `toThreadMessage`), then use `makeAssistantToolUI` to render each tool with running/complete/error states, args, and results natively.
 

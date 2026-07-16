@@ -66,7 +66,8 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   images?: string[];  // data URLs for user-attached images
-  status?: "running" | "complete";
+  status?: "running" | "complete" | "error" | "cancelled";
+  error?: string;
   activity?: "connecting" | "syncing";
   gate?: Gate | null;
   toolSteps?: ToolStep[];
@@ -180,8 +181,16 @@ const toThreadMessage = (msg: ChatMessage): ThreadMessageLike => ({
   status:
     msg.role === "assistant" && msg.status
       ? msg.status === "running"
-        ? { type: "running" }
-        : { type: "complete", reason: "stop" }
+        ? { type: "running" as const }
+        : msg.status === "error"
+          ? {
+              type: "incomplete" as const,
+              reason: "error" as const,
+              error: msg.error || "An error occurred",
+            }
+          : msg.status === "cancelled"
+            ? { type: "incomplete" as const, reason: "cancelled" as const }
+            : { type: "complete" as const, reason: "stop" as const }
       : undefined,
   metadata: {
     custom: {
@@ -1353,12 +1362,18 @@ function ChatApp() {
         }
       } else if (event.type === "process_exit" || event.type === "error") {
         const failure = event.type === "error" ? event.message : "Hermes stopped before returning a response.";
-        if (!assistantContentRef.current.trim()) assistantContentRef.current = `⚠️ ${failure}`;
         setError(failure);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? { ...m, content: assistantContentRef.current, status: "complete", gate: null }
+              ? {
+                  ...m,
+                  content: assistantContentRef.current,
+                  status: "error" as const,
+                  error: failure,
+                  gate: null,
+                  activity: undefined,
+                }
               : m
           )
         );
@@ -1414,7 +1429,22 @@ function ChatApp() {
           ac.signal,
         );
       } catch (e) {
-        if ((e as Error).name !== "AbortError") setError((e as Error).message);
+        if ((e as Error).name !== "AbortError") {
+          const failure = (e as Error).message || "Failed to resume the active run.";
+          setError(failure);
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === assistantId
+                ? {
+                    ...message,
+                    status: "error" as const,
+                    error: failure,
+                    activity: undefined,
+                  }
+                : message,
+            ),
+          );
+        }
       } finally {
         if (!ac.signal.aborted) setIsRunning(false);
         if (abortControllerRef.current === ac) abortControllerRef.current = null;
@@ -1481,16 +1511,35 @@ function ChatApp() {
     } catch (e) {
       if ((e as Error).name === "AbortError") {
         setIsRunning(false);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  content: assistantContentRef.current,
+                  status: "cancelled" as const,
+                  gate: null,
+                  activity: undefined,
+                }
+              : m
+          )
+        );
         return;
       }
       const failure = (e as Error).message || "Hermes failed before returning a response.";
-      if (!assistantContentRef.current.trim()) assistantContentRef.current = `⚠️ ${failure}`;
       setError(failure);
       setIsRunning(false);
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
-            ? { ...m, content: assistantContentRef.current, status: "complete", gate: null }
+            ? {
+                ...m,
+                content: assistantContentRef.current,
+                status: "error" as const,
+                error: failure,
+                gate: null,
+                activity: undefined,
+              }
             : m
         )
       );
@@ -1604,7 +1653,14 @@ function ChatApp() {
       setIsRunning(false);
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === assistantId ? { ...m, status: "complete" as const, gate: null } : m
+          m.id === assistantId
+            ? {
+                ...m,
+                status: "cancelled" as const,
+                gate: null,
+                activity: undefined,
+              }
+            : m
         )
       );
       if (assistantId && chatId) {
