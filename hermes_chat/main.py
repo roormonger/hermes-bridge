@@ -532,6 +532,10 @@ async def get_usage(
         loop.run_in_executor(None, gw.session_usage),
         loop.run_in_executor(None, gw.session_context_breakdown),
     )
+    # Stale DB mapping: gateway no longer has this session (restart/reap).
+    # Clear so the 3s usage poll stops retrying the dead id.
+    if hermes_sid and gw.hermes_session_id is None:
+        store.delete(chat_id)
     return {"usage": usage, "context_breakdown": breakdown}
 
 

@@ -324,15 +324,42 @@ class GatewaySession:
         self._session_verified: bool = hermes_session_id is None
 
     # ------------------------------------------------------------------
-    def _call(self, method: str, params: dict) -> dict:
-        """Dispatch a JSON-RPC call in the Hermes thread pool and return the result."""
+    def _call(
+        self,
+        method: str,
+        params: dict,
+        *,
+        expected_error_codes: frozenset[int] | None = None,
+    ) -> dict:
+        """Dispatch a JSON-RPC call in the Hermes thread pool and return the result.
+
+        ``expected_error_codes`` are logged at debug (e.g. stale session 4001 on
+        usage polls). All other RPC errors stay at warning so real bugs remain visible.
+        """
         req = _rpc(method, params)
         result = _dispatch_sync(req, self._transport)
         if isinstance(result, dict) and "error" in result:
             code = result["error"].get("code", 0)
             msg = result["error"].get("message", "unknown")
-            logger.warning("gateway RPC %s error %s: %s", method, code, msg)
+            if expected_error_codes and code in expected_error_codes:
+                logger.debug("gateway RPC %s expected error %s: %s", method, code, msg)
+            else:
+                logger.warning("gateway RPC %s error %s: %s", method, code, msg)
         return result
+
+    def _mark_session_missing(self, sid: str) -> None:
+        """Drop a Hermes session id that the gateway no longer has (stale/reaped)."""
+        with self._lock:
+            if self.hermes_session_id == sid:
+                logger.debug(
+                    "chat_id=%s hermes session %s not found in gateway; "
+                    "clearing until next ensure_session",
+                    self.chat_id,
+                    sid,
+                )
+                self.hermes_session_id = None
+                # None means "known empty" — create on next ensure_session.
+                self._session_verified = True
 
     # ------------------------------------------------------------------
     def ensure_session(self) -> str:
@@ -346,7 +373,11 @@ class GatewaySession:
                 if self._session_verified:
                     return self.hermes_session_id
                 # DB-loaded session — probe once to confirm it's still live.
-                probe = self._call("session.info", {"session_id": self.hermes_session_id})
+                probe = self._call(
+                    "session.info",
+                    {"session_id": self.hermes_session_id},
+                    expected_error_codes=frozenset({4001}),
+                )
                 if not (isinstance(probe, dict) and probe.get("error", {}).get("code") == 4001):
                     self._session_verified = True
                     return self.hermes_session_id
@@ -515,12 +546,15 @@ class GatewaySession:
         """Return token usage for the current session, or {} if none exists."""
         sid = self.hermes_session_id
         if not sid:
-            logger.info("chat_id=%s session_usage: no hermes session_id", self.chat_id)
             return {}
-        result = self._call("session.usage", {"session_id": sid})
-        logger.info("chat_id=%s session.usage raw=%r", self.chat_id, result)
+        result = self._call(
+            "session.usage",
+            {"session_id": sid},
+            expected_error_codes=frozenset({4001}),
+        )
         if isinstance(result, dict) and "error" in result:
-            logger.warning("session.usage error: %s", result["error"].get("message"))
+            if result["error"].get("code") == 4001:
+                self._mark_session_missing(sid)
             return {}
         return result.get("result") or {}
 
@@ -528,12 +562,15 @@ class GatewaySession:
         """Return context breakdown for the current session, or {} if none exists."""
         sid = self.hermes_session_id
         if not sid:
-            logger.info("chat_id=%s session_context_breakdown: no hermes session_id", self.chat_id)
             return {}
-        result = self._call("session.context_breakdown", {"session_id": sid})
-        logger.info("chat_id=%s session.context_breakdown raw=%r", self.chat_id, result)
+        result = self._call(
+            "session.context_breakdown",
+            {"session_id": sid},
+            expected_error_codes=frozenset({4001}),
+        )
         if isinstance(result, dict) and "error" in result:
-            logger.warning("session.context_breakdown error: %s", result["error"].get("message"))
+            if result["error"].get("code") == 4001:
+                self._mark_session_missing(sid)
             return {}
         return result.get("result") or {}
 
