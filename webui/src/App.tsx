@@ -1431,10 +1431,11 @@ function ChatApp() {
       } catch (e) {
         if ((e as Error).name !== "AbortError") {
           const failure = (e as Error).message || "Failed to resume the active run.";
+          const failedAssistantId = recoveryCandidate.message.id;
           setError(failure);
           setMessages((prev) =>
             prev.map((message) =>
-              message.id === assistantId
+              message.id === failedAssistantId
                 ? {
                     ...message,
                     status: "error" as const,
