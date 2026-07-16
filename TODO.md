@@ -4,7 +4,7 @@
 
 ### 🔴 High value
 
-- [ ] **Wire `ActionBarPrimitive.Reload`** — The regenerate button renders but does nothing. Add an `onReload` handler to `useExternalStoreRuntime` that re-submits the last user message to the stream.
+- [x] **Wire `ActionBarPrimitive.Reload`** — The regenerate button renders but does nothing. Add an `onReload` handler to `useExternalStoreRuntime` that re-submits the last user message to the stream.
 
 - [ ] **Better error surface via `ErrorPrimitive`** — Stream errors currently silently set `status: "complete"`. Set `status: { type: "incomplete", reason: "error" }` on the message and attach an error string so `ErrorPrimitive` / `MessageError` actually shows it inline in the thread.
 

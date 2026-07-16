@@ -1681,6 +1681,83 @@ function ChatApp() {
         setError((e as Error).message);
       }
     },
+    onReload: async (parentId: string | null) => {
+      const chatId = currentChatIdRef.current;
+      if (!chatId || isRunning) return;
+
+      // session.undo only rewinds the latest turn — only regenerate the last reply.
+      let parentIndex = parentId
+        ? messages.findIndex((m) => m.id === parentId)
+        : -1;
+      if (parentIndex < 0) {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role === "user") {
+            parentIndex = i;
+            break;
+          }
+        }
+      }
+      if (parentIndex < 0) return;
+
+      const parent = messages[parentIndex];
+      if (parent.role !== "user") return;
+
+      let lastUserIndex = -1;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === "user") {
+          lastUserIndex = i;
+          break;
+        }
+      }
+      if (parentIndex !== lastUserIndex) {
+        setError("Can only regenerate the latest response.");
+        return;
+      }
+
+      const userText = parent.content;
+      const images = parent.images ?? [];
+
+      try {
+        await undoLastTurn(chatId);
+        setMessages([
+          ...messages.slice(0, parentIndex),
+          {
+            id: generateId(),
+            role: "user",
+            content: userText,
+            images,
+            createdAt: Date.now(),
+          },
+        ]);
+        await createBackendMessage(chatId, "user", userText, images);
+
+        for (const img of images) {
+          try {
+            await apiFetch("/v1/image/attach", {
+              method: "POST",
+              body: JSON.stringify({
+                chat_id: chatId,
+                content_base64: img,
+                filename: "reload-attachment.png",
+              }),
+            });
+          } catch (e) {
+            setError(`Failed to re-attach image: ${(e as Error).message}`);
+            await loadMessages(chatId);
+            return;
+          }
+        }
+
+        await streamAssistant(chatId, userText);
+      } catch (e) {
+        setError((e as Error).message);
+        try {
+          await loadMessages(chatId);
+        } catch {
+          /* ignore recovery failure */
+        }
+      }
+    },
   });
 
   return (

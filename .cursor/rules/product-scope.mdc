@@ -1,0 +1,42 @@
+---
+description: hermes-chat product scope — chat-first plugin, not a Hermes control plane
+alwaysApply: true
+---
+
+# hermes-chat product scope
+
+This repo is a **Hermes plugin chat interface**. Keep it simpler than competitor UIs.
+
+## IN SCOPE
+
+- Chat UI with streaming responses
+- Tool-step display and decision gates (approval / clarify / sudo / secret) as native UI
+- Light features: markdown rendering/editing, attachments, themes, session list, optional voice
+- Plugin packaging, daemon lifecycle, JWT auth for the chat UI
+- Same backend path as the built-in TUI: in-process `tui_gateway` JSON-RPC
+
+## OUT OF SCOPE
+
+Do **not** build or port these product surfaces (even if hermes-webui / hermes_client have them):
+
+- Hermes settings / Control Center / provider setup wizards
+- Interactive coding IDE or task boards
+- Workspace file browser / Spaces / Memory.md admin panels
+- Full cron / skills / plugins admin UIs
+- Multi-profile agent management as a product feature
+- xterm setup terminals for `hermes` config wizards
+
+## UI stack
+
+Prefer **assistant-ui** primitives (`@assistant-ui/react`, Thread / Composer / Message, tool UI, markdown) over custom chat chrome. Official assistant-ui skills live under `~/.agents/skills/` (`assistant-ui`, `primitives`, `runtime`, `tools`, `streaming`, `markdown`, …). Docs index: https://www.assistant-ui.com/llms.txt
+
+## Reference materials
+
+When improving chat UX or gateway integration, load project skills:
+
+- `.cursor/skills/hermes-webui-reference` — steal chat patterns only
+- `.cursor/skills/hermes-client-reference` — steal chat patterns only; never their auto-approve gates
+- `.cursor/skills/hermes-install` — local `hermes install/` + `tui_gateway` map
+- `docs/hermes-gateway-protocol.md` — RPC/event catalog already derived from the install
+
+When in doubt: if removing the feature would still leave a great chat app, it’s in scope; if it only exists to administer Hermes, leave it alone.

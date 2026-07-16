@@ -42,6 +42,7 @@ import {
   MicIcon,
   MoreHorizontalIcon,
   PencilIcon,
+  RefreshCwIcon,
   SquareIcon,
   Undo2Icon,
   Volume2Icon,
@@ -938,6 +939,11 @@ const AssistantActionBar: FC = () => {
           </AuiIf>
         </TooltipIconButton>
       </ActionBarPrimitive.Copy>
+      <ActionBarPrimitive.Reload asChild>
+        <TooltipIconButton tooltip="Regenerate">
+          <RefreshCwIcon className="size-4" />
+        </TooltipIconButton>
+      </ActionBarPrimitive.Reload>
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger asChild>
           <TooltipIconButton
