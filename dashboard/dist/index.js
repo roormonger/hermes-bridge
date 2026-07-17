@@ -50,6 +50,71 @@
     return res.json();
   }
 
+  /** Hermes dashboard APIs (same origin as this tab — not the plugin prefix). */
+  async function fetchHermesJSON(path, opts) {
+    const res = await fetch(path, {
+      ...opts,
+      headers: { "Content-Type": "application/json", ...(opts && opts.headers) },
+      credentials: "same-origin",
+    });
+    if (!res.ok) {
+      let detail = "HTTP " + res.status;
+      try { const j = await res.json(); detail = j.detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    return res.json();
+  }
+
+  function isCatalogModelFree(provider, modelId) {
+    const id = String(modelId || "");
+    if (id.toLowerCase().endsWith(":free")) return true;
+    const pricing = provider && provider.pricing;
+    const entry = pricing && pricing[id];
+    return !!(entry && entry.free === true);
+  }
+
+  function flattenHermesModelOptions(catalog, analytics) {
+    const options = [];
+    const models = (analytics && analytics.models) || [];
+    for (const row of models) {
+      const id = row && row.model;
+      if (!id) continue;
+      options.push({
+        id,
+        name: String(id).split("/").pop() || id,
+        provider: row.provider || "",
+        provider_name: "Hermes Profiles",
+        is_profile: true,
+        free: String(id).toLowerCase().endsWith(":free"),
+      });
+    }
+    for (const provider of (catalog && catalog.providers) || []) {
+      if (!provider) continue;
+      const slug = provider.slug || provider.id || "";
+      const providerName = provider.name || slug || "Unknown";
+      for (const model of provider.models || []) {
+        const id = (model && (model.id || model.model)) || String(model);
+        if (!id) continue;
+        const name = (model && model.name) || id;
+        options.push({
+          id,
+          name,
+          provider: slug,
+          provider_name: providerName,
+          is_profile: false,
+          free: isCatalogModelFree(provider, id),
+        });
+      }
+    }
+    const seen = new Set();
+    return options.filter((opt) => {
+      const key = (opt.provider || "") + "|||" + opt.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   function StatusPill({ running, healthy }) {
     const color = !running ? "bg-muted text-muted-foreground" : healthy ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100" : "bg-destructive/15 text-destructive";
     const text = !running ? "Stopped" : healthy ? "Running" : "Unhealthy";
@@ -141,10 +206,18 @@
         setSuggestionsPromptDirty(false);
       } catch (_) {}
       try {
-        const models = await fetchJSON("/suggestions/models");
-        setSuggestionModelOptions(models.options || []);
+        // Hit Hermes dashboard APIs directly (same catalog as Models page).
+        // Plugin Python routes only remount on Hermes restart; these do not.
+        const [catalog, analytics] = await Promise.all([
+          fetchHermesJSON("/api/model/options?explicit_only=1").catch(() => null),
+          fetchHermesJSON("/api/analytics/models?days=30").catch(() => null),
+        ]);
+        const options = flattenHermesModelOptions(catalog, analytics);
+        setSuggestionModelOptions(options);
         setSuggestionModelsError(
-          models.ok ? null : ((models.errors && models.errors.join("; ")) || "Could not load Hermes models")
+          options.length
+            ? null
+            : "Hermes returned no models. Check provider auth on the Models page."
         );
       } catch (err) {
         setSuggestionModelOptions([]);
