@@ -82,6 +82,8 @@
     const [suggestionsShowCount, setSuggestionsShowCount] = useState("4");
     const [suggestionsModel, setSuggestionsModel] = useState("");
     const [suggestionsProvider, setSuggestionsProvider] = useState("");
+    const [suggestionModelOptions, setSuggestionModelOptions] = useState([]);
+    const [suggestionModelsError, setSuggestionModelsError] = useState(null);
     const [suggestionsPrompt, setSuggestionsPrompt] = useState("");
     const [suggestionsPromptDirty, setSuggestionsPromptDirty] = useState(false);
     const [pendingRestart, setPendingRestart] = useState(false);
@@ -138,6 +140,16 @@
         setSuggestionsPrompt(prompt.content || "");
         setSuggestionsPromptDirty(false);
       } catch (_) {}
+      try {
+        const models = await fetchJSON("/suggestions/models");
+        setSuggestionModelOptions(models.options || []);
+        setSuggestionModelsError(
+          models.ok ? null : ((models.errors && models.errors.join("; ")) || "Could not load Hermes models")
+        );
+      } catch (err) {
+        setSuggestionModelOptions([]);
+        setSuggestionModelsError(String(err));
+      }
     }, []);
 
     const loadLogs = useCallback(async () => {
@@ -779,26 +791,79 @@
                 })
               )
             ),
-            h("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2" },
-              h("div", { className: "flex flex-col gap-1" },
-                h("label", { className: "text-xs text-muted-foreground font-medium" }, "Suggestion model"),
-                h("input", {
-                  type: "text",
-                  value: suggestionsModel,
-                  onChange: (e) => setSuggestionsModel(e.target.value),
-                  placeholder: "Leave empty for Hermes default",
-                  className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
-                })
+            h("div", { className: "flex flex-col gap-2" },
+              h("div", { className: "flex flex-wrap items-end justify-between gap-2" },
+                h("div", { className: "flex flex-col gap-1 flex-1 min-w-[16rem]" },
+                  h("label", { className: "text-xs text-muted-foreground font-medium" }, "Suggestion model"),
+                  h("p", { className: "text-xs text-muted-foreground" },
+                    "Same Hermes catalog as the chat model picker. Leave on default to use Hermes’s current model."
+                  ),
+                  (() => {
+                    const encode = (model, provider) => (model ? `${provider || ""}|||${model}` : "");
+                    const currentValue = encode(suggestionsModel, suggestionsProvider);
+                    const groups = new Map();
+                    for (const opt of suggestionModelOptions) {
+                      const label = opt.provider_name || opt.provider || "Other";
+                      if (!groups.has(label)) groups.set(label, []);
+                      groups.get(label).push(opt);
+                    }
+                    const hasCurrent = !suggestionsModel || suggestionModelOptions.some(
+                      (o) => o.id === suggestionsModel && (o.provider || "") === (suggestionsProvider || "")
+                    );
+                    const groupEntries = Array.from(groups.entries()).sort((a, b) => {
+                      const aProf = a[0] === "Hermes Profiles" ? -1 : 0;
+                      const bProf = b[0] === "Hermes Profiles" ? -1 : 0;
+                      if (aProf !== bProf) return aProf - bProf;
+                      return a[0].localeCompare(b[0]);
+                    });
+                    return h("select", {
+                      value: currentValue,
+                      onChange: (e) => {
+                        const raw = e.target.value;
+                        if (!raw) {
+                          setSuggestionsModel("");
+                          setSuggestionsProvider("");
+                          return;
+                        }
+                        const sep = raw.indexOf("|||");
+                        if (sep < 0) {
+                          setSuggestionsModel(raw);
+                          setSuggestionsProvider("");
+                          return;
+                        }
+                        setSuggestionsProvider(raw.slice(0, sep));
+                        setSuggestionsModel(raw.slice(sep + 3));
+                      },
+                      className: "rounded-md border border-input bg-background px-3 py-2 text-sm w-full max-w-xl"
+                    },
+                      h("option", { value: "" }, "Hermes default"),
+                      !hasCurrent && suggestionsModel && h("option", {
+                        value: currentValue
+                      }, `${suggestionsModel}${suggestionsProvider ? " (" + suggestionsProvider + ")" : ""} — saved`),
+                      groupEntries.map(([groupName, opts]) =>
+                        h("optgroup", { key: groupName, label: groupName },
+                          opts.map((opt) => h("option", {
+                            key: `${opt.provider || ""}|||${opt.id}`,
+                            value: encode(opt.id, opt.provider)
+                          }, `${opt.name || opt.id}${opt.free ? " · free" : ""}`))
+                        )
+                      )
+                    );
+                  })()
+                ),
+                h(Button, {
+                  type: "button",
+                  variant: "outline",
+                  size: "sm",
+                  disabled: loading,
+                  onClick: () => loadSuggestionsConfig()
+                }, "Refresh models")
               ),
-              h("div", { className: "flex flex-col gap-1" },
-                h("label", { className: "text-xs text-muted-foreground font-medium" }, "Suggestion provider"),
-                h("input", {
-                  type: "text",
-                  value: suggestionsProvider,
-                  onChange: (e) => setSuggestionsProvider(e.target.value),
-                  placeholder: "Optional provider slug",
-                  className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
-                })
+              suggestionModelsError && h("p", { className: "text-xs text-yellow-700 dark:text-yellow-300" },
+                "Model list unavailable: " + suggestionModelsError + ". You can still keep the current saved model."
+              ),
+              suggestionsModel && h("p", { className: "text-xs text-muted-foreground" },
+                "Selected: " + suggestionsModel + (suggestionsProvider ? " · provider " + suggestionsProvider : "")
               )
             ),
             h(Button, { onClick: onSaveSuggestionsSettings, disabled: loading, size: "sm" }, "Save Suggestion Settings"),

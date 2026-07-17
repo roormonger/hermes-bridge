@@ -305,6 +305,147 @@ async def delete_user(user_id: str) -> dict:
         _handle_exc(exc)
 
 
+def _flatten_catalog_models(catalog: dict) -> list[dict]:
+    from hermes_chat.model_access import is_catalog_model_free
+
+    options: list[dict] = []
+    for provider in catalog.get("providers") or []:
+        if not isinstance(provider, dict):
+            continue
+        slug = str(provider.get("slug") or provider.get("id") or "")
+        provider_name = str(provider.get("name") or slug or "Unknown")
+        for model in provider.get("models") or []:
+            if isinstance(model, dict):
+                mid = str(model.get("id") or model.get("model") or "")
+                name = str(model.get("name") or mid)
+            else:
+                mid = str(model)
+                name = mid
+            if not mid:
+                continue
+            options.append(
+                {
+                    "id": mid,
+                    "name": name,
+                    "provider": slug,
+                    "provider_name": provider_name,
+                    "is_profile": False,
+                    "free": is_catalog_model_free(provider, mid),
+                }
+            )
+    return options
+
+
+def _flatten_profile_models(analytics: dict) -> list[dict]:
+    options: list[dict] = []
+    for model in analytics.get("models") or []:
+        if not isinstance(model, dict):
+            continue
+        mid = str(model.get("model") or "")
+        if not mid:
+            continue
+        provider = str(model.get("provider") or "")
+        options.append(
+            {
+                "id": mid,
+                "name": mid.split("/")[-1] or mid,
+                "provider": provider,
+                "provider_name": "Hermes Profiles",
+                "is_profile": True,
+                "free": mid.lower().endswith(":free"),
+            }
+        )
+    return options
+
+
+async def _load_gateway_catalog() -> dict:
+    """Load model.options via in-process tui_gateway (Hermes dashboard process)."""
+    import asyncio
+
+    from hermes_chat.gateway_session import GatewaySessionManager, gateway_available, gateway_available_error
+
+    if not gateway_available():
+        raise RuntimeError(gateway_available_error() or "tui_gateway not available")
+    loop = asyncio.get_running_loop()
+    mgr = GatewaySessionManager(session_idle_timeout=120.0)
+    chat_id = "__dashboard_suggestion_models__"
+    gw = mgr.get_or_create(chat_id, None, loop)
+    try:
+        return await loop.run_in_executor(None, gw.model_options)
+    finally:
+        try:
+            mgr.remove(chat_id)
+        except Exception:
+            pass
+
+
+def _load_daemon_catalog() -> dict:
+    """Fall back to the running hermes-chat daemon /v1/models with a short-lived JWT."""
+    cfg = load_config()
+    host = "127.0.0.1" if cfg.host in ("0.0.0.0", "::", "") else cfg.host
+    store = _user_store()
+    users = store.list_users()
+    if not users:
+        raise RuntimeError("Chat daemon proxy needs at least one chat user to mint a token")
+    token = store.create_token(users[0]["user_id"])
+    url = f"http://{host}:{cfg.port}/v1/models"
+    req = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+@router.get("/suggestions/models")
+async def get_suggestion_models() -> dict:
+    """Dynamic Hermes model list for the suggestion-engine dropdown."""
+    try:
+        options: list[dict] = []
+        source = "none"
+        errors: list[str] = []
+
+        try:
+            analytics = _get_models_analytics(days=30)
+            options.extend(_flatten_profile_models(analytics))
+        except Exception as exc:
+            errors.append(f"profiles: {exc}")
+
+        catalog = None
+        try:
+            catalog = await _load_gateway_catalog()
+            source = "gateway"
+        except Exception as gw_exc:
+            errors.append(f"gateway: {gw_exc}")
+            try:
+                catalog = _load_daemon_catalog()
+                source = "daemon"
+            except Exception as daemon_exc:
+                errors.append(f"daemon: {daemon_exc}")
+
+        if catalog:
+            options.extend(_flatten_catalog_models(catalog))
+
+        # Stable de-dupe: prefer first occurrence (profiles listed first).
+        seen: set[tuple[str, str]] = set()
+        deduped: list[dict] = []
+        for opt in options:
+            key = (opt.get("id") or "", opt.get("provider") or "")
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(opt)
+
+        return {
+            "options": deduped,
+            "source": source,
+            "ok": bool(deduped),
+            "errors": errors,
+        }
+    except Exception as exc:
+        _handle_exc(exc)
+
+
 @router.get("/suggestions/prompt")
 async def get_suggestions_prompt() -> dict:
     try:
