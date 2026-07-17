@@ -32,9 +32,9 @@ import {
   ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
-  SuggestionPrimitive,
   ThreadPrimitive,
   groupPartByType,
+  useAui,
   useAuiState,
   useComposerRuntime,
 } from "@assistant-ui/react";
@@ -64,6 +64,14 @@ import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
 import type { VoiceCapabilities } from "../../hooks/useVoiceCapabilities";
 
 const VoiceCapsContext = createContext<VoiceCapabilities>({ ttsAvailable: true, sttAvailable: true, ttsVoice: undefined });
+
+export type StarterSuggestion = {
+  title: string;
+  label: string;
+  prompt: string;
+};
+
+const StarterSuggestionsContext = createContext<StarterSuggestion[]>([]);
 
 type GateContextValue = {
   gatePending: boolean;
@@ -290,11 +298,24 @@ export const Thread: FC<{
   ttsVoice?: string;
   gatePending?: boolean;
   onGateChoice?: (choice: string) => Promise<boolean>;
-}> = ({ onUndo, contextWindow, threadUsage, autoSpeak, onAutoSpeakToggle, voiceCaps, ttsVoice, gatePending = false, onGateChoice }) => {
+  starterSuggestions?: StarterSuggestion[];
+}> = ({
+  onUndo,
+  contextWindow,
+  threadUsage,
+  autoSpeak,
+  onAutoSpeakToggle,
+  voiceCaps,
+  ttsVoice,
+  gatePending = false,
+  onGateChoice,
+  starterSuggestions = [],
+}) => {
   const caps = { ...(voiceCaps ?? { ttsAvailable: true, sttAvailable: true }), ttsVoice };
   const isEmpty = useAuiState(isNewChatView);
 
   return (
+    <StarterSuggestionsContext.Provider value={starterSuggestions}>
     <GateContext.Provider value={{ gatePending, onGateChoice: onGateChoice ?? null }}>
     <VoiceCapsContext.Provider value={caps}>
     <ThreadPrimitive.Root
@@ -353,6 +374,7 @@ export const Thread: FC<{
     </ThreadPrimitive.Root>
     </VoiceCapsContext.Provider>
     </GateContext.Provider>
+    </StarterSuggestionsContext.Provider>
   );
 };
 
@@ -390,27 +412,42 @@ const ThreadWelcome: FC = () => {
 };
 
 const ThreadSuggestions: FC = () => {
+  const suggestions = useContext(StarterSuggestionsContext);
+  const aui = useAui();
+  const isRunning = useAuiState((s) => s.thread.isRunning);
+  const isDisabled = useAuiState((s) => s.thread.isDisabled);
+
+  if (!suggestions.length) return null;
+
   return (
     <div className="aui-thread-welcome-suggestions flex w-full flex-wrap items-center justify-center gap-2 px-4">
-      <ThreadPrimitive.Suggestions>
-        {() => <ThreadSuggestionItem />}
-      </ThreadPrimitive.Suggestions>
-    </div>
-  );
-};
-
-const ThreadSuggestionItem: FC = () => {
-  return (
-    <div className="aui-thread-welcome-suggestion-display fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200">
-      <SuggestionPrimitive.Trigger send asChild>
-        <Button
-          variant="ghost"
-          className="aui-thread-welcome-suggestion text-foreground hover:bg-muted border-border/60 h-auto gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-normal whitespace-nowrap transition-colors"
+      {suggestions.map((suggestion) => (
+        <div
+          key={suggestion.prompt}
+          className="aui-thread-welcome-suggestion-display fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200"
         >
-          <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1" />
-          <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 text-muted-foreground empty:hidden" />
-        </Button>
-      </SuggestionPrimitive.Trigger>
+          <Button
+            variant="ghost"
+            disabled={isDisabled || isRunning}
+            className="aui-thread-welcome-suggestion text-foreground hover:bg-muted border-border/60 h-auto gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-normal whitespace-nowrap transition-colors"
+            onClick={() => {
+              if (isRunning || isDisabled) return;
+              aui.thread().append({
+                content: [{ type: "text", text: suggestion.prompt }],
+                runConfig: aui.composer().getState().runConfig,
+              });
+              aui.composer().setText("");
+            }}
+          >
+            <span className="aui-thread-welcome-suggestion-text-1">{suggestion.title}</span>
+            {suggestion.label ? (
+              <span className="aui-thread-welcome-suggestion-text-2 text-muted-foreground">
+                {suggestion.label}
+              </span>
+            ) : null}
+          </Button>
+        </div>
+      ))}
     </div>
   );
 };

@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import secrets
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,12 @@ DEFAULTS: dict[str, Any] = {
     "hermes_dashboard_url": "",
     "voice_enabled": True,
     "default_tts_voice": "en-US-AriaNeural",
+    "suggestions_enabled": True,
+    "suggestions_interval_minutes": 60,
+    "suggestions_pool_size": 12,
+    "suggestions_show_count": 4,
+    "suggestions_model": "",
+    "suggestions_provider": "",
 }
 
 
@@ -49,6 +55,12 @@ class ChatConfig:
     hermes_dashboard_url: str
     voice_enabled: bool = True
     default_tts_voice: str = "en-US-AriaNeural"
+    suggestions_enabled: bool = True
+    suggestions_interval_minutes: int = 60
+    suggestions_pool_size: int = 12
+    suggestions_show_count: int = 4
+    suggestions_model: str = ""
+    suggestions_provider: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -63,6 +75,12 @@ class ChatConfig:
             "hermes_dashboard_url": self.hermes_dashboard_url,
             "voice_enabled": self.voice_enabled,
             "default_tts_voice": self.default_tts_voice,
+            "suggestions_enabled": self.suggestions_enabled,
+            "suggestions_interval_minutes": self.suggestions_interval_minutes,
+            "suggestions_pool_size": self.suggestions_pool_size,
+            "suggestions_show_count": self.suggestions_show_count,
+            "suggestions_model": self.suggestions_model,
+            "suggestions_provider": self.suggestions_provider,
         }
 
 
@@ -107,7 +125,8 @@ def load_config(path: Path | None = None) -> ChatConfig:
                 cfg.update(yaml.safe_load(f) or {})
         except Exception:
             pass
-    return ChatConfig(**cfg)
+    known = {f.name for f in fields(ChatConfig)}
+    return ChatConfig(**{k: v for k, v in cfg.items() if k in known})
 
 
 def save_config(config: ChatConfig, path: Path | None = None) -> None:

@@ -21,3 +21,11 @@ session_idle_timeout: 600   # Seconds of inactivity before a session is reaped
 auto_start: true     # Auto-start the daemon when the Hermes plugin loads
 log_level: INFO      # DEBUG / INFO / WARNING / ERROR
 debug: false         # Verbose gateway/session logging (forces DEBUG)
+
+# Starter suggestion pools (background job; UI samples instantly)
+suggestions_enabled: true
+suggestions_interval_minutes: 60   # How often to refresh each user's pool
+suggestions_pool_size: 12          # Suggestions generated per refresh
+suggestions_show_count: 4          # Chips shown in the empty composer
+suggestions_model: ""              # Optional model id for generation (empty = Hermes default)
+suggestions_provider: ""           # Optional provider slug when suggestions_model is set

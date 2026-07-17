@@ -6,11 +6,11 @@ import {
   CompositeAttachmentAdapter,
   SimpleImageAttachmentAdapter,
   SimpleTextAttachmentAdapter,
-  Suggestions,
   type AppendMessage,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import { Thread } from "@/components/assistant-ui/thread";
+import type { StarterSuggestion } from "@/components/assistant-ui/thread";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -234,8 +234,8 @@ const convertMessage = (msg: ThreadMessageLike): ThreadMessageLike => {
   return msg;
 };
 
-/** Empty-thread starter chips shown by ThreadPrimitive.Suggestions. */
-const STARTER_SUGGESTIONS = [
+/** Empty-thread starter chips — static fallback when the server pool is empty. */
+const STARTER_SUGGESTIONS: StarterSuggestion[] = [
   {
     title: "List files",
     label: "in the current directory",
@@ -256,7 +256,7 @@ const STARTER_SUGGESTIONS = [
     label: "OS, CPU, memory",
     prompt: "Give me a brief summary of this machine (OS, CPU, memory, disk).",
   },
-] as const;
+];
 
 const getAppendText = (msg: AppendMessage): string => {
   const parts = typeof msg.content === "string" ? [{ type: "text", text: msg.content }] : msg.content;
@@ -1070,6 +1070,7 @@ function ChatApp() {
     reasoningTokens?: number;
     totalTokens?: number;
   }>({});
+  const [starterSuggestions, setStarterSuggestions] = useState<StarterSuggestion[]>([...STARTER_SUGGESTIONS]);
 
   const assistantIdRef = useRef<string | null>(null);
   const assistantContentRef = useRef("");
@@ -1113,6 +1114,31 @@ function ChatApp() {
       window.history.replaceState(null, "", next);
     }
   }, [currentChatId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiFetch("/v1/suggestions");
+        const items = Array.isArray(data?.suggestions) ? data.suggestions : [];
+        const normalized: StarterSuggestion[] = items
+          .filter((s: any) => s && typeof s.prompt === "string" && s.prompt.trim())
+          .map((s: any) => ({
+            title: String(s.title || "").trim() || "Suggestion",
+            label: String(s.label || "").trim(),
+            prompt: String(s.prompt).trim(),
+          }));
+        if (!cancelled && normalized.length) {
+          setStarterSuggestions(normalized);
+        }
+      } catch {
+        /* keep static fallback */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadChats = useCallback(async () => {
     try {
@@ -1974,10 +2000,8 @@ function ChatApp() {
     },
   });
 
-  // Static welcome chips for ThreadPrimitive.Suggestions (suggestions scope, not thread.suggestions).
-  const aui = useAui({
-    suggestions: Suggestions([...STARTER_SUGGESTIONS]),
-  });
+  // Empty aui root — starter chips are rendered from React state via Thread.
+  const aui = useAui({});
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background">
@@ -2084,7 +2108,7 @@ function ChatApp() {
         )}
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <AssistantRuntimeProvider aui={aui} runtime={runtime}>
-            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} voiceCaps={voiceCaps} ttsVoice={ttsVoice} gatePending={Boolean(pendingGate)} onGateChoice={handleGateChoice} />
+            <Thread onUndo={handleUndo} contextWindow={contextWindow} threadUsage={threadUsage as any} autoSpeak={autoSpeak} onAutoSpeakToggle={toggleAutoSpeak} voiceCaps={voiceCaps} ttsVoice={ttsVoice} gatePending={Boolean(pendingGate)} onGateChoice={handleGateChoice} starterSuggestions={starterSuggestions} />
           </AssistantRuntimeProvider>
         </div>
         <ModelPicker

@@ -76,6 +76,14 @@
     const [voiceDepsAvailable, setVoiceDepsAvailable] = useState({ tts: true, stt: true });
     const [settingsHost, setSettingsHost] = useState("");
     const [settingsPort, setSettingsPort] = useState("");
+    const [suggestionsEnabled, setSuggestionsEnabled] = useState(true);
+    const [suggestionsInterval, setSuggestionsInterval] = useState("60");
+    const [suggestionsPoolSize, setSuggestionsPoolSize] = useState("12");
+    const [suggestionsShowCount, setSuggestionsShowCount] = useState("4");
+    const [suggestionsModel, setSuggestionsModel] = useState("");
+    const [suggestionsProvider, setSuggestionsProvider] = useState("");
+    const [suggestionsPrompt, setSuggestionsPrompt] = useState("");
+    const [suggestionsPromptDirty, setSuggestionsPromptDirty] = useState(false);
     const [pendingRestart, setPendingRestart] = useState(false);
     const [dashboardUrl, setDashboardUrl] = useState("");
     const [dashboardUrlSource, setDashboardUrlSource] = useState("");
@@ -117,6 +125,21 @@
       } catch (_) {}
     }, []);
 
+    const loadSuggestionsConfig = useCallback(async () => {
+      try {
+        const cfg = await fetchJSON("/config");
+        setSuggestionsEnabled(!!cfg.suggestions_enabled);
+        setSuggestionsInterval(String(cfg.suggestions_interval_minutes ?? 60));
+        setSuggestionsPoolSize(String(cfg.suggestions_pool_size ?? 12));
+        setSuggestionsShowCount(String(cfg.suggestions_show_count ?? 4));
+        setSuggestionsModel(cfg.suggestions_model || "");
+        setSuggestionsProvider(cfg.suggestions_provider || "");
+        const prompt = await fetchJSON("/suggestions/prompt");
+        setSuggestionsPrompt(prompt.content || "");
+        setSuggestionsPromptDirty(false);
+      } catch (_) {}
+    }, []);
+
     const loadLogs = useCallback(async () => {
       try {
         const data = await fetchJSON("/logs?tail=100");
@@ -155,9 +178,10 @@
       loadUsers();
       loadDashboardUrl();
       loadVoiceConfig();
+      loadSuggestionsConfig();
       const id = setInterval(() => { loadStatus(); loadLogs(); }, 5000);
       return () => clearInterval(id);
-    }, [loadStatus, loadDeps, loadLogs, loadUsers, loadDashboardUrl, loadVoiceConfig]);
+    }, [loadStatus, loadDeps, loadLogs, loadUsers, loadDashboardUrl, loadVoiceConfig, loadSuggestionsConfig]);
 
     useEffect(() => {
       if (!logsPaused && logsBoxRef.current) {
@@ -236,6 +260,87 @@
         await loadVoiceConfig();
       } catch (err) {
         setError("Save voice settings failed: " + String(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const onSaveSuggestionsSettings = async () => {
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const interval = parseInt(suggestionsInterval, 10);
+        const poolSize = parseInt(suggestionsPoolSize, 10);
+        const showCount = parseInt(suggestionsShowCount, 10);
+        if (isNaN(interval) || interval < 5) {
+          setError("Refresh interval must be at least 5 minutes.");
+          return;
+        }
+        if (isNaN(poolSize) || poolSize < 1 || poolSize > 32) {
+          setError("Pool size must be between 1 and 32.");
+          return;
+        }
+        if (isNaN(showCount) || showCount < 1 || showCount > 8) {
+          setError("Chips shown must be between 1 and 8.");
+          return;
+        }
+        await fetchJSON("/config", {
+          method: "POST",
+          body: JSON.stringify({
+            suggestions_enabled: suggestionsEnabled,
+            suggestions_interval_minutes: interval,
+            suggestions_pool_size: poolSize,
+            suggestions_show_count: showCount,
+            suggestions_model: suggestionsModel.trim(),
+            suggestions_provider: suggestionsProvider.trim(),
+          }),
+        });
+        setNotice("Suggestion settings saved. The background job picks them up on the next cycle.");
+        await loadSuggestionsConfig();
+      } catch (err) {
+        setError("Save suggestion settings failed: " + String(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const onSaveSuggestionsPrompt = async () => {
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        await fetchJSON("/suggestions/prompt", {
+          method: "PUT",
+          body: JSON.stringify({ content: suggestionsPrompt }),
+        });
+        setSuggestionsPromptDirty(false);
+        setNotice("Suggestion prompt saved.");
+      } catch (err) {
+        setError("Save suggestion prompt failed: " + String(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const onRestoreSuggestionsPrompt = async (source) => {
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await fetchJSON("/suggestions/prompt/restore", {
+          method: "POST",
+          body: JSON.stringify({ source }),
+        });
+        setSuggestionsPrompt(result.content || "");
+        setSuggestionsPromptDirty(false);
+        setNotice(
+          result.warning
+            ? result.warning
+            : "Suggestion prompt restored from " + (result.source || source) + "."
+        );
+      } catch (err) {
+        setError("Restore suggestion prompt failed: " + String(err));
       } finally {
         setLoading(false);
       }
@@ -617,6 +722,123 @@
                   )
                 ))
               )
+            )
+          )
+        ),
+        h(Card, null,
+          h(CardHeader, null,
+            h(CardTitle, null, "Starter Suggestions"),
+            h("p", { className: "text-sm text-muted-foreground" },
+              "Background job builds per-user suggestion pools. The chat UI samples chips instantly; static fallbacks are used when a pool is empty."
+            )
+          ),
+          h(CardContent, { className: "space-y-4" },
+            h("label", { className: "flex items-center justify-between rounded-md border px-4 py-3 cursor-pointer" },
+              h("div", null,
+                h("div", { className: "text-sm font-medium" }, "Enable background generation"),
+                h("div", { className: "text-xs text-muted-foreground" }, "Uses the suggestion model (or Hermes default) on an interval per user.")
+              ),
+              h("input", {
+                type: "checkbox",
+                checked: suggestionsEnabled,
+                onChange: (e) => setSuggestionsEnabled(e.target.checked),
+                className: "h-4 w-4 cursor-pointer"
+              })
+            ),
+            h("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-3" },
+              h("div", { className: "flex flex-col gap-1" },
+                h("label", { className: "text-xs text-muted-foreground font-medium" }, "Refresh interval (minutes)"),
+                h("input", {
+                  type: "number",
+                  min: "5",
+                  value: suggestionsInterval,
+                  onChange: (e) => setSuggestionsInterval(e.target.value),
+                  className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
+                })
+              ),
+              h("div", { className: "flex flex-col gap-1" },
+                h("label", { className: "text-xs text-muted-foreground font-medium" }, "Pool size"),
+                h("input", {
+                  type: "number",
+                  min: "1",
+                  max: "32",
+                  value: suggestionsPoolSize,
+                  onChange: (e) => setSuggestionsPoolSize(e.target.value),
+                  className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
+                })
+              ),
+              h("div", { className: "flex flex-col gap-1" },
+                h("label", { className: "text-xs text-muted-foreground font-medium" }, "Chips shown"),
+                h("input", {
+                  type: "number",
+                  min: "1",
+                  max: "8",
+                  value: suggestionsShowCount,
+                  onChange: (e) => setSuggestionsShowCount(e.target.value),
+                  className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
+                })
+              )
+            ),
+            h("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2" },
+              h("div", { className: "flex flex-col gap-1" },
+                h("label", { className: "text-xs text-muted-foreground font-medium" }, "Suggestion model"),
+                h("input", {
+                  type: "text",
+                  value: suggestionsModel,
+                  onChange: (e) => setSuggestionsModel(e.target.value),
+                  placeholder: "Leave empty for Hermes default",
+                  className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
+                })
+              ),
+              h("div", { className: "flex flex-col gap-1" },
+                h("label", { className: "text-xs text-muted-foreground font-medium" }, "Suggestion provider"),
+                h("input", {
+                  type: "text",
+                  value: suggestionsProvider,
+                  onChange: (e) => setSuggestionsProvider(e.target.value),
+                  placeholder: "Optional provider slug",
+                  className: "rounded-md border border-input bg-background px-3 py-2 text-sm"
+                })
+              )
+            ),
+            h(Button, { onClick: onSaveSuggestionsSettings, disabled: loading, size: "sm" }, "Save Suggestion Settings"),
+            h("div", { className: "flex flex-col gap-2 pt-2 border-t" },
+              h("div", { className: "flex flex-wrap items-center justify-between gap-2" },
+                h("div", null,
+                  h("div", { className: "text-sm font-medium" }, "Generator prompt"),
+                  h("p", { className: "text-xs text-muted-foreground" }, "Template file suggestions.md (placeholders: {{POOL_SIZE}}, {{MODE}}, {{MODE_INSTRUCTIONS}}, {{HISTORY}}).")
+                ),
+                h("div", { className: "flex flex-wrap gap-2" },
+                  h(Button, {
+                    type: "button",
+                    variant: "outline",
+                    size: "sm",
+                    disabled: loading,
+                    onClick: () => onRestoreSuggestionsPrompt("github")
+                  }, "Restore from GitHub"),
+                  h(Button, {
+                    type: "button",
+                    variant: "ghost",
+                    size: "sm",
+                    disabled: loading,
+                    onClick: () => onRestoreSuggestionsPrompt("bundle")
+                  }, "Restore bundled")
+                )
+              ),
+              h("textarea", {
+                value: suggestionsPrompt,
+                onChange: (e) => {
+                  setSuggestionsPrompt(e.target.value);
+                  setSuggestionsPromptDirty(true);
+                },
+                rows: 12,
+                className: "w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono leading-relaxed"
+              }),
+              h(Button, {
+                onClick: onSaveSuggestionsPrompt,
+                disabled: loading || !suggestionsPromptDirty,
+                size: "sm"
+              }, "Save Prompt")
             )
           )
         )

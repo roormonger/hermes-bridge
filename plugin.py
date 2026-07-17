@@ -22,6 +22,7 @@ if str(_PLUGIN_ROOT) not in sys.path:
 from hermes_chat.config import auth_secret, config_path, load_config, update_config
 from hermes_chat.daemon import is_running, logs, restart, start, status, stop
 from hermes_chat.dependencies import check_dependencies, check_optional_dependencies, install_dependencies
+from hermes_chat.suggestions import ensure_suggestions_prompt
 
 
 def _ensure_config() -> None:
@@ -35,6 +36,16 @@ def _ensure_config() -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(src, dest)
     print(f"[hermes-chat] Created default config at {dest}")
+
+
+def _ensure_suggestions_prompt() -> None:
+    """Copy suggestions.md.default → suggestions.md if not present."""
+    try:
+        dest = ensure_suggestions_prompt()
+        if dest.exists():
+            print(f"[hermes-chat] Suggestions prompt ready at {dest}")
+    except Exception as exc:
+        print(f"[hermes-chat] Could not prepare suggestions prompt: {exc}")
 
 
 def _setup_argparse(subparser):
@@ -168,6 +179,7 @@ def register(ctx) -> None:
 def _do_register(ctx) -> None:
     """Actual registration logic."""
     _ensure_config()
+    _ensure_suggestions_prompt()
     ctx.register_cli_command(
         name="hermes-chat",
         help="Manage the Hermes Chat daemon",

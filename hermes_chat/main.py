@@ -40,6 +40,12 @@ from .model_access import (
     filter_model_options_for_free_user,
     model_allowed_for_free_user,
 )
+from .suggestions import (
+    SuggestionStore,
+    SuggestionWorker,
+    ensure_suggestions_prompt,
+    sample_suggestions,
+)
 
 config = load_config()
 _log_level = getattr(logging, config.log_level.upper(), logging.INFO)
@@ -70,10 +76,15 @@ app = FastAPI(title="hermes-chat", version="0.1.0")
 store = ChatSessionStore()
 history = ChatHistoryStore()
 users = UserStore(secret=auth_secret())
+suggestion_store = SuggestionStore()
+suggestion_worker: Optional[SuggestionWorker] = None
 
 if _BACKEND == "gateway":
     sessions = GatewaySessionManager(session_idle_timeout=config.session_idle_timeout)
     runs: Optional[ChatRunManager] = ChatRunManager(history, store)
+    suggestion_worker = SuggestionWorker(
+        users=users, history=history, sessions=sessions, store=suggestion_store
+    )
 else:
     sessions = _PtySessionManager(config)  # type: ignore[assignment]
     runs = None
@@ -117,6 +128,8 @@ def _chat_index() -> FileResponse:
 
 @app.on_event("shutdown")
 async def _on_shutdown() -> None:
+    if suggestion_worker is not None:
+        suggestion_worker.stop()
     if runs is not None:
         await runs.shutdown()
 
@@ -126,6 +139,10 @@ async def _on_startup() -> None:
     logger.info("hermes-chat listening on %s:%s", config.host, config.port)
     logger.info("hermes-chat web UI directory: %s", _webui_dir)
     logger.info("hermes-chat backend: %s", _BACKEND)
+    try:
+        ensure_suggestions_prompt()
+    except Exception as exc:
+        logger.warning("suggestions prompt setup failed: %s", exc)
 
     if _BACKEND == "gateway":
         loop = asyncio.get_running_loop()
@@ -136,6 +153,8 @@ async def _on_startup() -> None:
             logger.info("hermes-chat model catalog pre-warmed")
         except Exception as exc:
             logger.warning("hermes-chat model catalog pre-warm failed: %s", exc)
+        if suggestion_worker is not None:
+            suggestion_worker.start(loop)
 
 
 class ChatRequest(BaseModel):
@@ -273,6 +292,22 @@ def _resolve_gate_choice(options: list[str], choice: str) -> str | None:
 @app.get("/healthz")
 async def healthz() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/v1/suggestions")
+async def get_suggestions(current_user: dict = Depends(get_current_user)) -> dict:
+    """Sample starter chips from the user's pre-generated pool (static fallback)."""
+    cfg = load_config()
+    count = max(1, min(int(cfg.suggestions_show_count), 8))
+    pool = suggestion_store.get_pool(current_user["user_id"])
+    meta = suggestion_store.get_meta(current_user["user_id"])
+    sampled = sample_suggestions(pool, count)
+    return {
+        "suggestions": sampled,
+        "source": "pool" if pool else "static",
+        "mode": (meta or {}).get("mode"),
+        "updated_at": (meta or {}).get("updated_at"),
+    }
 
 
 @app.post("/api/auth/login")

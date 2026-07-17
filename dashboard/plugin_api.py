@@ -85,7 +85,21 @@ class ConfigUpdate(BaseModel):
     hermes_dashboard_url: Optional[str] = None
     voice_enabled: Optional[bool] = None
     default_tts_voice: Optional[str] = None
+    suggestions_enabled: Optional[bool] = None
+    suggestions_interval_minutes: Optional[int] = None
+    suggestions_pool_size: Optional[int] = None
+    suggestions_show_count: Optional[int] = None
+    suggestions_model: Optional[str] = None
+    suggestions_provider: Optional[str] = None
     restart: bool = False
+
+
+class SuggestionsPromptUpdate(BaseModel):
+    content: str
+
+
+class SuggestionsPromptRestore(BaseModel):
+    source: str = "github"  # github | bundle
 
 
 @router.get("/status")
@@ -287,5 +301,106 @@ async def delete_user(user_id: str) -> dict:
         store = _user_store()
         deleted = store.delete_user(user_id)
         return {"status": "deleted" if deleted else "not_found", "user_id": user_id}
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+@router.get("/suggestions/prompt")
+async def get_suggestions_prompt() -> dict:
+    try:
+        from hermes_chat.suggestions import (
+            SUGGESTIONS_GITHUB_RAW,
+            ensure_suggestions_prompt,
+            read_suggestions_prompt,
+            suggestions_prompt_path,
+        )
+
+        ensure_suggestions_prompt()
+        return {
+            "content": read_suggestions_prompt(),
+            "path": str(suggestions_prompt_path()),
+            "github_url": SUGGESTIONS_GITHUB_RAW,
+        }
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+@router.put("/suggestions/prompt")
+async def put_suggestions_prompt(body: SuggestionsPromptUpdate) -> dict:
+    try:
+        from hermes_chat.suggestions import write_suggestions_prompt
+
+        if not body.content.strip():
+            raise HTTPException(status_code=400, detail="Prompt content cannot be empty")
+        write_suggestions_prompt(body.content)
+        return {"status": "saved"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+@router.post("/suggestions/prompt/restore")
+async def post_restore_suggestions_prompt(body: SuggestionsPromptRestore) -> dict:
+    try:
+        from hermes_chat.suggestions import (
+            restore_suggestions_prompt_from_bundle,
+            restore_suggestions_prompt_from_github,
+        )
+
+        source = (body.source or "github").strip().lower()
+        if source == "bundle":
+            content = restore_suggestions_prompt_from_bundle()
+        elif source == "github":
+            try:
+                content = restore_suggestions_prompt_from_github()
+            except Exception as github_exc:
+                # Offline / GitHub unreachable → bundled default.
+                content = restore_suggestions_prompt_from_bundle()
+                return {
+                    "status": "restored",
+                    "source": "bundle",
+                    "content": content,
+                    "warning": f"GitHub restore failed ({github_exc}); used bundled default.",
+                }
+        else:
+            raise HTTPException(status_code=400, detail="source must be 'github' or 'bundle'")
+        return {"status": "restored", "source": source, "content": content}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _handle_exc(exc)
+
+
+@router.get("/suggestions/status")
+async def get_suggestions_status() -> dict:
+    try:
+        from hermes_chat.suggestions import SuggestionStore
+
+        cfg = load_config()
+        store = SuggestionStore()
+        users = _user_store().list_users()
+        pools = []
+        for user in users:
+            meta = store.get_meta(user["user_id"])
+            pool = store.get_pool(user["user_id"])
+            pools.append(
+                {
+                    "user_id": user["user_id"],
+                    "username": user.get("username"),
+                    "count": len(pool),
+                    "mode": (meta or {}).get("mode"),
+                    "updated_at": (meta or {}).get("updated_at"),
+                }
+            )
+        return {
+            "enabled": cfg.suggestions_enabled,
+            "interval_minutes": cfg.suggestions_interval_minutes,
+            "pool_size": cfg.suggestions_pool_size,
+            "show_count": cfg.suggestions_show_count,
+            "model": cfg.suggestions_model,
+            "provider": cfg.suggestions_provider,
+            "pools": pools,
+        }
     except Exception as exc:
         _handle_exc(exc)
