@@ -408,6 +408,27 @@
       }
     };
 
+    const onGenerateSuggestionsNow = async () => {
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await fetchJSON("/suggestions/refresh", { method: "POST", body: "{}" });
+        if (result.status === "busy") {
+          setNotice(result.message || "A refresh is already running.");
+        } else {
+          setNotice(
+            result.message
+              || ("Suggestion generation started for " + (result.users ?? "?") + " user(s). Check daemon logs for progress.")
+          );
+        }
+      } catch (err) {
+        setError("Generate suggestions failed: " + String(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+
     const onRestoreSuggestionsPrompt = async (source) => {
       setLoading(true);
       setError(null);
@@ -939,7 +960,19 @@
                 "Selected: " + suggestionsModel + (suggestionsProvider ? " · provider " + suggestionsProvider : "")
               )
             ),
-            h(Button, { onClick: onSaveSuggestionsSettings, disabled: loading, size: "sm" }, "Save Suggestion Settings"),
+            h("div", { className: "flex flex-wrap gap-2" },
+              h(Button, { onClick: onSaveSuggestionsSettings, disabled: loading, size: "sm" }, "Save Suggestion Settings"),
+              h(Button, {
+                type: "button",
+                variant: "outline",
+                size: "sm",
+                disabled: loading,
+                onClick: onGenerateSuggestionsNow
+              }, loading ? "Working..." : "Generate now")
+            ),
+            h("p", { className: "text-xs text-muted-foreground" },
+              "Generate now forces a fresh pool for every chat user (uses the selected suggestion model). Requires the Hermes Chat daemon to be running."
+            ),
             h("div", { className: "flex flex-col gap-2 pt-2 border-t" },
               h("div", { className: "flex flex-wrap items-center justify-between gap-2" },
                 h("div", null,

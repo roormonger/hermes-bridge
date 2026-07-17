@@ -24,7 +24,7 @@ import uuid
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile, WebSocket, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, UploadFile, WebSocket, status
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -307,6 +307,35 @@ async def get_suggestions(current_user: dict = Depends(get_current_user)) -> dic
         "source": "pool" if pool else "static",
         "mode": (meta or {}).get("mode"),
         "updated_at": (meta or {}).get("updated_at"),
+    }
+
+
+@app.post("/v1/suggestions/refresh")
+async def refresh_suggestions(request: Request) -> dict:
+    """Force-regenerate suggestion pools for all chat users.
+
+    Localhost-only so the Hermes dashboard plugin can trigger a run without a
+    chat-user JWT. Generation runs in the background on the suggestion worker.
+    """
+    client = request.client.host if request.client else ""
+    if client not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(status_code=403, detail="Localhost only")
+    if suggestion_worker is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Suggestion worker unavailable (gateway backend required)",
+        )
+    started = suggestion_worker.refresh_all_async()
+    if not started:
+        return {
+            "status": "busy",
+            "message": "A suggestion refresh is already running.",
+        }
+    user_count = len(users.list_users())
+    return {
+        "status": "started",
+        "users": user_count,
+        "message": f"Refreshing suggestion pools for {user_count} user(s).",
     }
 
 

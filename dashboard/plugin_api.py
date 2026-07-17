@@ -545,3 +545,41 @@ async def get_suggestions_status() -> dict:
         }
     except Exception as exc:
         _handle_exc(exc)
+
+
+def _daemon_base_url() -> str:
+    cfg = load_config()
+    host = "127.0.0.1" if cfg.host in ("0.0.0.0", "::", "") else cfg.host
+    return f"http://{host}:{cfg.port}"
+
+
+@router.post("/suggestions/refresh")
+async def post_suggestions_refresh() -> dict:
+    """Ask the hermes-chat daemon to force-regenerate all suggestion pools."""
+    try:
+        if not is_running():
+            raise HTTPException(
+                status_code=400,
+                detail="Hermes Chat daemon is not running. Start it, then try again.",
+            )
+        url = _daemon_base_url().rstrip("/") + "/v1/suggestions/refresh"
+        req = urllib.request.Request(
+            url,
+            data=b"{}",
+            method="POST",
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as http_exc:
+            detail = http_exc.read().decode("utf-8", errors="replace")
+            try:
+                detail = json.loads(detail).get("detail") or detail
+            except Exception:
+                pass
+            raise HTTPException(status_code=http_exc.code, detail=str(detail)) from http_exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _handle_exc(exc)

@@ -421,19 +421,26 @@ class SuggestionWorker:
     def stop(self) -> None:
         self._stop.set()
 
-    def refresh_due_users(self) -> None:
+    def refresh_due_users(self, *, force: bool = False) -> dict:
+        """Refresh suggestion pools. With force=True, ignore interval and enabled flag."""
         cfg = load_config()
-        if not cfg.suggestions_enabled:
-            return
+        if not force and not cfg.suggestions_enabled:
+            return {"refreshed": [], "failed": [], "skipped": "disabled"}
         if self._loop is None:
-            return
+            return {"refreshed": [], "failed": [], "skipped": "no_event_loop"}
         interval = max(5, int(cfg.suggestions_interval_minutes)) * 60
+        refreshed: list[dict] = []
+        failed: list[dict] = []
         for user in self.users.list_users():
             if self._stop.is_set():
-                return
+                break
             meta = self.store.get_meta(user["user_id"])
             updated = float(meta["updated_at"]) if meta else 0.0
-            if time.time() - updated < interval and self.store.get_pool(user["user_id"]):
+            if (
+                not force
+                and time.time() - updated < interval
+                and self.store.get_pool(user["user_id"])
+            ):
                 continue
             try:
                 pool, mode = generate_pool_for_user(
@@ -449,19 +456,55 @@ class SuggestionWorker:
                     len(pool),
                     mode,
                 )
+                refreshed.append(
+                    {
+                        "user_id": user["user_id"],
+                        "username": user.get("username"),
+                        "count": len(pool),
+                        "mode": mode,
+                    }
+                )
             except Exception as exc:
                 logger.warning(
                     "suggestion refresh failed for %s: %s",
                     user.get("username"),
                     exc,
                 )
+                failed.append(
+                    {
+                        "user_id": user["user_id"],
+                        "username": user.get("username"),
+                        "error": str(exc),
+                    }
+                )
+        return {"refreshed": refreshed, "failed": failed}
+
+    def refresh_all_async(self) -> bool:
+        """Kick off a forced refresh on a background thread. Returns False if busy/unavailable."""
+        if self._loop is None:
+            return False
+        if getattr(self, "_manual_refresh_lock", None) is None:
+            self._manual_refresh_lock = threading.Lock()
+        if not self._manual_refresh_lock.acquire(blocking=False):
+            return False
+
+        def _run() -> None:
+            try:
+                self.refresh_due_users(force=True)
+            finally:
+                self._manual_refresh_lock.release()
+
+        threading.Thread(
+            target=_run, name="hermes-chat-suggestions-manual", daemon=True
+        ).start()
+        return True
 
     def _run(self) -> None:
         # Small initial delay so startup/pre-warm finishes first.
         self._stop.wait(15.0)
         while not self._stop.is_set():
             try:
-                self.refresh_due_users()
+                self.refresh_due_users(force=False)
             except Exception as exc:
                 logger.warning("suggestion worker loop error: %s", exc)
             cfg = load_config()
